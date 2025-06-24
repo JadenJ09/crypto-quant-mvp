@@ -1,0 +1,52 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+dev-debug.log
+
+# Dependency directories
+node_modules/
+
+# Environment variables
+.env
+
+# Editor directories and files
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.roomodes
+.windsurfrules
+.cursor
+.roo
+.taskmaster
+*.swp
+
+# OS specific
+.DS_Store
+
+# Python Virtual Environments
+.venv/
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Build artifacts & local data
+dist/
+build/
+*.egg-info/
+/mlruns/
+/artifacts/
+/data/
+
+#
+prd.md

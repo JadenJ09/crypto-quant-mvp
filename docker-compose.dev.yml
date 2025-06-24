@@ -1,0 +1,182 @@
+# docker-compose.dev.yml
+# This file defines and configures all the services needed to run the Crypto-Quant-MVP
+# backend locally for development. Run with: docker compose -f docker-compose.dev.yml up --build -d\
+# UPDATED for P1-T3 to include a local Spark cluster.
+
+version: "3.8"
+
+networks:
+  # A dedicated network for our services to communicate reliably using their names.
+  quant_network:
+    driver: bridge
+
+services:
+  # --------------------------------------------------------------------------
+  #  DATA & MESSAGING TIER
+  # --------------------------------------------------------------------------
+
+  # Kafka is our central message bus, the "data highway" of the system.
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    hostname: kafka
+    container_name: kafka
+    networks:
+      - quant_network
+    ports:
+      # Exposes Kafka to the host machine for local tools or testing.
+      - "9092:9092"
+    environment:
+      # --- KRaft Mode Configuration (No Zookeeper Needed) ---
+      # Uniquely identifies this node in the cluster.
+      KAFKA_NODE_ID: 1
+      # Defines the roles of this node (broker for data, controller for metadata).
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      # Lists the initial voting members of the metadata quorum. For a single node, it's just itself.
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      # Specifies which listener the controller should use.
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      # --- Listener Configuration (Crucial for Connectivity) ---
+      # Defines how different clients connect. PLAINTEXT is for internal Docker network comms.
+      # PLAINTEXT_HOST is for external comms from your host machine (e.g., a local Python script).
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT"
+      KAFKA_LISTENERS: "PLAINTEXT://:29092,PLAINTEXT_HOST://:9092,CONTROLLER://:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092"
+      # Defines which listener other brokers in a cluster would use.
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      # --- Topic and Cluster Configuration ---
+      # A unique ID for the Kafka cluster. Generate one for your project.
+      CLUSTER_ID: "crypto-quant-mvp-cluster-1"
+      # For a single-node setup, these factors must be 1.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      # Allows topics to be created automatically when a producer sends a message to them.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+
+  # TimescaleDB is our high-performance "hot" database for time-series and vector data.
+  timescaledb:
+    image: timescale/timescaledb-ha:pg16-ts2.14
+    hostname: timescaledb
+    container_name: timescaledb
+    networks:
+      - quant_network
+    ports:
+      # Exposes the PostgreSQL port to the host machine for DB tools like DBeaver or pgAdmin.
+      - "5433:5433"
+    volumes:
+      # Persists all database data on the host machine. If you stop/remove the container,
+      # your data will be safe and will be re-loaded on the next start.
+      - timescale_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+
+  # --------------------------------------------------------------------------
+  #  PROCESSING TIER (NEWLY ADDED: P1-T3)
+  # --------------------------------------------------------------------------
+  spark-master:
+    image: bitnami/spark:3.5
+    container_name: spark-master
+    networks:
+      - quant_network
+    ports:
+      - "8080:8080" # Spark Master Web UI
+      - "7077:7077" # Spark Master Port for job submission
+    volumes:
+      # Mount our spark-jobs directory so the master can access the scripts
+      - ./spark-jobs:/opt/bitnami/spark/jobs
+      # Mount a local directory to act as our local Delta Lake and checkpoint location
+      - ./data:/opt/bitnami/spark/data
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+
+  spark-worker:
+    image: bitnami/spark:3.5
+    container_name: spark-worker
+    networks:
+      - quant_network
+    depends_on:
+      - spark-master
+    volumes:
+      - ./spark-jobs:/opt/bitnami/spark/jobs
+      - ./data:/opt/bitnami/spark/data
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=1G
+      - SPARK_WORKER_CORES=1
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+
+  # --------------------------------------------------------------------------
+  #  APPLICATION TIER (Placeholders for now, to be built in next tasks)
+  # --------------------------------------------------------------------------
+
+  # --- NEW SERVICE ADDED FOR P1-T4 ---
+  db-writer:
+    build:
+      context: ./services/db-writer
+      dockerfile: Dockerfile
+    container_name: db-writer
+    networks:
+      - quant_network
+    depends_on:
+      # It must wait for both Kafka and TimescaleDB to be ready.
+      - kafka
+      - timescaledb
+    environment:
+      DATABASE_URL: ${POSTGRES_URL}
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+    restart: unless-stopped
+
+  # The data ingestor service that will connect to Binance WebSockets.
+  ingestor:
+    # We will create the Dockerfile for this in task P1-T2.
+    build:
+      context: ./services/ingestor
+      dockerfile: Dockerfile
+    container_name: ingestor
+    networks:
+      - quant_network
+    depends_on:
+      # Ensures that Kafka is running before this service starts.
+      - kafka
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+    # The 'restart' policy ensures it automatically comes back up if it crashes.
+    restart: unless-stopped
+
+  # The main backend API that will serve data to the frontend.
+  # api:
+  #   # We will create the Dockerfile and app for this in task P1-T5.
+  #   build:
+  #     context: ./services/api
+  #     dockerfile: Dockerfile
+  #   container_name: api
+  #   networks:
+  #     - quant_network
+  #   ports:
+  #     - "8000:8000"
+  #   volumes:
+  #     # Live-reloading: Any changes you make to the 'app' code on your host machine
+  #     # are immediately reflected inside the running container.
+  #     - ./services/api/app:/app/app
+  #   depends_on:
+  #     - timescaledb
+  #     - kafka
+  #   environment:
+  #     DATABASE_URL: ${POSTGRES_URL}
+  #     KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+  #   restart: unless-stopped
+
+# Named volumes provide persistent storage for our stateful services.
+volumes:
+  timescale_data:
+    driver: local

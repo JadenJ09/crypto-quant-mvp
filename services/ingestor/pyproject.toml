@@ -1,0 +1,25 @@
+# services/ingestor/pyproject.toml
+# This file defines the project metadata and dependencies for our data ingestor service.
+# The 'uv' tool will use this file to create an isolated virtual environment.
+
+[project]
+name = "quant-ingestor"
+version = "0.1.0"
+description = "Real-time crypto trade data ingestor for the Quant-MVP platform."
+authors = [{ name = "Jaden J.", email = "your_email@example.com" }]
+requires-python = ">=3.11"
+dependencies = [
+    # The official, high-performance Kafka client from Confluent.
+    "confluent-kafka==2.4.0",
+
+    # A modern, robust library for building WebSocket clients and servers.
+    # We use it to connect to the Binance real-time data streams.
+    "websockets==12.0",
+
+    # A powerful data validation library. We use it to define the expected structure
+    # of the incoming WebSocket data, ensuring we don't process malformed messages.
+    "pydantic==2.7.4",
+]
+
+[tool.uv]
+# This section can be used for uv-specific configurations in the future.

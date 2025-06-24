@@ -1,0 +1,18 @@
+[project]
+name = "crypto-quant-mvp"
+version = "0.1.0"
+description = "A Dev Environment for Crypto Quant MVP"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "matplotlib>=3.10.3",
+    "mlflow>=3.1.0",
+    "numpy>=2.3.1",
+    "pandas>=2.3.0",
+    "psycopg[binary]==3.1.19",
+    "pyspark>=4.0.0",
+]
+[tool.uv]
+
+[tool.uv.workspace]
+members = ["services/db-writer"]

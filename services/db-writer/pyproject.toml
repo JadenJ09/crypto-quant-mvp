@@ -1,0 +1,21 @@
+# ==============================================================================
+# File: services/db-writer/pyproject.toml
+# ==============================================================================
+# Defines the dependencies for our database writing service.
+
+[project]
+name = "quant-db-writer"
+version = "0.1.0"
+description = "Consumes aggregated OHLCV data from Kafka and writes to TimescaleDB."
+authors = [{ name = "Jaden J.", email = "your_email@example.com" }]
+requires-python = ">=3.11"
+dependencies = [
+    # Kafka client for consuming messages.
+    "confluent-kafka==2.4.0",
+    # The modern, high-performance PostgreSQL driver for Python 3.
+    # We use the [binary] extra for faster performance.
+    "psycopg[binary]==3.1.19",
+    # For data validation of the incoming OHLCV bars.
+    "pydantic==2.7.4",
+    "python-dotenv>=1.1.1",
+]
