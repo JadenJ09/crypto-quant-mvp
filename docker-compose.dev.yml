@@ -45,7 +45,7 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
       # --- Topic and Cluster Configuration ---
       # A unique ID for the Kafka cluster. Generate one for your project.
-      CLUSTER_ID: "crypto-quant-mvp-cluster-1"
+      CLUSTER_ID: "PWK0PmUZSUSwsY00holpVA" # UUID encoded in base64 needed for KRaft mode. -> python3 -c 'import uuid, base64; print(base64.urlsafe_b64encode(uuid.uuid4().bytes).decode("ascii").rstrip("="))'
       # For a single-node setup, these factors must be 1.
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
@@ -62,7 +62,7 @@ services:
       - quant_network
     ports:
       # Exposes the PostgreSQL port to the host machine for DB tools like DBeaver or pgAdmin.
-      - "5433:5433"
+      - "5433:5432"
     volumes:
       # Persists all database data on the host machine. If you stop/remove the container,
       # your data will be safe and will be re-loaded on the next start.
@@ -71,6 +71,13 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+    # --- healthcheck block ---
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    # -----------------------------------------------
 
   # --------------------------------------------------------------------------
   #  PROCESSING TIER (NEWLY ADDED: P1-T3)
@@ -128,12 +135,22 @@ services:
     networks:
       - quant_network
     depends_on:
-      # It must wait for both Kafka and TimescaleDB to be ready.
-      - kafka
-      - timescaledb
+      kafka:
+        condition: service_started
+      timescaledb:
+        # Now depends_on will wait for the healthcheck to pass
+        condition: service_healthy
     environment:
-      DATABASE_URL: ${POSTGRES_URL}
+      DATABASE_URL: ${DATABASE_URL} # .env 파일의 DATABASE_URL 값을 사용합니다.
       KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      KAFKA_TOPIC: "agg.ohlcv.1m"
+      KAFKA_GROUP_ID: "ohlcv_db_writer_group"
+      # POSTGRES_HOST: "timescaledb"
+      # POSTGRES_PORT: 5432
+      # POSTGRES_USER: ${POSTGRES_USER}
+      # POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # POSTGRES_DB: ${POSTGRES_DB}
+      # KAFKA_CONSUMER_GROUP_ID: "db-writer-group"
     restart: unless-stopped
 
   # The data ingestor service that will connect to Binance WebSockets.
@@ -149,7 +166,7 @@ services:
       # Ensures that Kafka is running before this service starts.
       - kafka
     environment:
-      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092" # "29092" is the internal Docker network port.
     # The 'restart' policy ensures it automatically comes back up if it crashes.
     restart: unless-stopped
 
