@@ -3,8 +3,6 @@
 # backend locally for development. Run with: docker compose -f docker-compose.dev.yml up --build -d\
 # UPDATED for P1-T3 to include a local Spark cluster.
 
-version: "3.8"
-
 networks:
   # A dedicated network for our services to communicate reliably using their names.
   quant_network:
@@ -52,10 +50,19 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       # Allows topics to be created automatically when a producer sends a message to them.
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server kafka:29092 --list || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s # Give Kafka some time to start up before starting health checks
 
   # TimescaleDB is our high-performance "hot" database for time-series and vector data.
   timescaledb:
-    image: timescale/timescaledb-ha:pg16-ts2.14
+    build:
+      context: ./services/timescaledb
+      dockerfile: Dockerfile
+    image: crypto_quant_mvp/timescaledb-custom # Optional: name the custom image
     hostname: timescaledb
     container_name: timescaledb
     networks:
@@ -163,8 +170,8 @@ services:
     networks:
       - quant_network
     depends_on:
-      # Ensures that Kafka is running before this service starts.
-      - kafka
+      kafka:
+        condition: service_healthy
     environment:
       KAFKA_BOOTSTRAP_SERVERS: "kafka:29092" # "29092" is the internal Docker network port.
     # The 'restart' policy ensures it automatically comes back up if it crashes.
