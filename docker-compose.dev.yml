@@ -67,6 +67,7 @@ services:
       # Persists all database data on the host machine. If you stop/remove the container,
       # your data will be safe and will be re-loaded on the next start.
       - timescale_data:/var/lib/postgresql/data
+      - ./infra/db:/docker-entrypoint-initdb.d # Custom initialization scripts
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -84,6 +85,7 @@ services:
   # --------------------------------------------------------------------------
   spark-master:
     image: bitnami/spark:3.5
+    user: root
     container_name: spark-master
     networks:
       - quant_network
@@ -104,6 +106,7 @@ services:
 
   spark-worker:
     image: bitnami/spark:3.5
+    user: root
     container_name: spark-worker
     networks:
       - quant_network
@@ -169,6 +172,35 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: "kafka:29092" # "29092" is the internal Docker network port.
     # The 'restart' policy ensures it automatically comes back up if it crashes.
     restart: unless-stopped
+
+  # Spark 잡을 자동으로 제출해주는 서비스
+  spark-job-submitter:
+    image: bitnami/spark:3.5
+    user: root
+    container_name: spark-job-submitter
+    networks:
+      - quant_network
+    # spark-master가 시작된 후에 이 서비스가 시작되도록 보장합니다.
+    depends_on:
+      - spark-master
+      - spark-worker
+    # spark-jobs 디렉토리를 컨테이너에 마운트합니다.
+    volumes:
+      - ./spark-jobs:/opt/bitnami/spark/jobs
+      - ./data:/opt/bitnami/spark/data # spark-job이 data 폴더에 접근해야 할 경우를 대비
+    # 이 서비스가 실행할 명령어입니다.
+    command: >
+      sh -c "
+        echo 'Waiting for Spark Master to be ready...' &&
+        sleep 15 &&
+        echo 'Submitting Spark job: ohlcv_aggregator.py' &&
+        /opt/bitnami/spark/bin/spark-submit \
+        --master spark://spark-master:7077 \
+        --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,io.delta:delta-spark_2.12:3.2.0 \
+        /opt/bitnami/spark/jobs/ohlcv_aggregator.py
+      "
+    # 잡 제출 후 컨테이너가 재시작되지 않도록 설정합니다.
+    restart: "no"
 
   # The main backend API that will serve data to the frontend.
   # api:
