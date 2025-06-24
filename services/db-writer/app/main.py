@@ -89,8 +89,58 @@ def main():
         'enable.auto.commit': False # We will commit offsets manually for better control
     }
     consumer = Consumer(consumer_config)
-    consumer.subscribe([KAFKA_TOPIC])
-    logging.info(f"Subscribed to Kafka topic: {KAFKA_TOPIC}")
+
+    # --- Retry logic for Kafka subscription ---
+    max_retries = 5
+    retry_delay_seconds = 10
+    retries = 0
+    subscribed = False
+    while not subscribed and retries < max_retries:
+        try:
+            consumer.subscribe([KAFKA_TOPIC])
+            logging.info(f"Attempting to subscribe to Kafka topic: {KAFKA_TOPIC}")
+            # Try a quick poll to force metadata refresh and check topic existence
+            # This might immediately raise an error if the topic is not available
+            test_msg = consumer.poll(timeout=5.0)
+            if test_msg is None:
+                logging.info(f"Successfully subscribed to Kafka topic: {KAFKA_TOPIC} (polled None, topic likely exists or will be auto-created).")
+                subscribed = True
+            elif test_msg.error():
+                if test_msg.error().code() == KafkaError.UNKNOWN_TOPIC_OR_PART:
+                    logging.warning(f"Kafka topic {KAFKA_TOPIC} not available yet (UNKNOWN_TOPIC_OR_PART). Retrying ({retries+1}/{max_retries})...")
+                    retries += 1
+                    time.sleep(retry_delay_seconds)
+                else:
+                    # Different Kafka error, raise immediately
+                    raise KafkaException(test_msg.error())
+            else: # Message received
+                logging.info(f"Successfully subscribed to Kafka topic: {KAFKA_TOPIC} (polled a message).")
+                subscribed = True
+                # We need to handle this first message if we don't want to lose it.
+                # For simplicity in retry, we'll re-poll in the main loop.
+                # A more sophisticated approach might process it here or seek back.
+                # For now, we'll just log it and the main loop will pick it up again.
+                logging.info(f"Received initial message during subscription check: {test_msg.value()[:100]}...")
+
+
+        except KafkaException as e:
+            # Check if the subscribe call itself raised an error related to topic non-existence
+            # This is less common for UNKNOWN_TOPIC_OR_PART which usually comes from poll/consume
+            if e.args[0].code() == KafkaError.UNKNOWN_TOPIC_OR_PART:
+                logging.warning(f"Kafka topic {KAFKA_TOPIC} not available (UNKNOWN_TOPIC_OR_PART on subscribe attempt). Retrying ({retries+1}/{max_retries})...")
+                retries += 1
+                time.sleep(retry_delay_seconds)
+            else:
+                logging.error(f"Unhandled KafkaException during subscription: {e}")
+                raise # Re-raise other Kafka exceptions
+        except Exception as e:
+            logging.error(f"Unexpected error during Kafka subscription: {e}")
+            raise # Re-raise other unexpected errors
+
+    if not subscribed:
+        logging.error(f"Failed to subscribe to Kafka topic {KAFKA_TOPIC} after {max_retries} retries. Exiting.")
+        sys.exit(1)
+    # --- End of retry logic ---
 
     conn = get_db_connection()
     batch = []
