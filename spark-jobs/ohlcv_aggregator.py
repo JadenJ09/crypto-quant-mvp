@@ -2,7 +2,7 @@
 import logging
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import from_json, col, window, first, max, min, last, sum
-from pyspark.sql.types import StructType, StructField, StringType, DoubleType, LongType
+from pyspark.sql.types import StructType, StructField, StringType, DoubleType, LongType, BooleanType
 
 # --- Configuration ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -20,23 +20,27 @@ def main():
     """
     logging.info("Starting Spark session...")
     
-    # The spark-submit command will include the necessary packages for Kafka and Delta Lake.
+    # Create Spark session for streaming without Delta Lake
     spark = SparkSession.builder \
         .appName("OHLCVAggregator") \
         .config("spark.sql.shuffle.partitions", "4") \
-        .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
-        .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
         .getOrCreate()
 
     logging.info("Spark session created successfully.")
 
     # Define the schema for the incoming JSON trade data from the ingestor.
-    # This must match the format produced by the ingestor service.
+    # This must match the Binance aggTrade format produced by the ingestor service.
     trade_schema = StructType([
+        StructField("e", StringType(), True),   # Event type (aggTrade)
+        StructField("E", LongType(), True),     # Event time (milliseconds)
+        StructField("a", LongType(), True),     # Aggregate trade ID
         StructField("s", StringType(), True),   # Symbol
         StructField("p", StringType(), True),   # Price
         StructField("q", StringType(), True),   # Quantity
-        StructField("T", LongType(), True),     # Trade time (milliseconds timestamp)
+        StructField("f", LongType(), True),     # First trade ID
+        StructField("l", LongType(), True),     # Last trade ID
+        StructField("T", LongType(), True),     # Trade time (milliseconds)
+        StructField("m", BooleanType(), True),  # Is buyer maker
     ])
 
     # 1. Read from Kafka Source
@@ -44,6 +48,7 @@ def main():
         .format("kafka") \
         .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS) \
         .option("subscribe", INPUT_KAFKA_TOPIC) \
+        .option("failOnDataLoss", "false") \
         .load()
 
     # 2. Parse and Transform Data
@@ -79,29 +84,28 @@ def main():
             "symbol", "open", "high", "low", "close", "volume"
         )
 
-    # 4. Write to Sinks using foreachBatch
+    # 4. Write to Kafka sink using foreachBatch
     # foreachBatch allows us to apply custom logic to the output of each micro-batch.
-    def write_to_sinks(batch_df, epoch_id):
+    def write_to_kafka_sink(batch_df, epoch_id):
         logging.info(f"--- Processing Micro-Batch ID: {epoch_id} ---")
         
         # Cache the batch DataFrame to avoid re-computation
         batch_df.persist()
 
-        # Sink 1: Write to Kafka for real-time consumers
-        logging.info(f"Writing {batch_df.count()} rows to Kafka topic: {OUTPUT_KAFKA_TOPIC}")
-        batch_df.selectExpr("to_json(struct(*)) AS value") \
-            .write \
-            .format("kafka") \
-            .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS) \
-            .option("topic", OUTPUT_KAFKA_TOPIC) \
-            .save()
-
-        # Sink 2: Write to Delta Lake for archival and batch analytics (ML training)
-        logging.info(f"Writing to Delta Lake sink at: {DELTA_LAKE_LOCATION}")
-        batch_df.write \
-            .format("delta") \
-            .mode("append") \
-            .save(DELTA_LAKE_LOCATION)
+        # Write to Kafka for real-time consumers
+        row_count = batch_df.count()
+        logging.info(f"Writing {row_count} rows to Kafka topic: {OUTPUT_KAFKA_TOPIC}")
+        
+        if row_count > 0:
+            batch_df.selectExpr("to_json(struct(*)) AS value") \
+                .write \
+                .format("kafka") \
+                .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS) \
+                .option("topic", OUTPUT_KAFKA_TOPIC) \
+                .save()
+            logging.info(f"Successfully wrote {row_count} rows to Kafka")
+        else:
+            logging.info("No data to write in this batch")
 
         # Release the cached DataFrame
         batch_df.unpersist()
@@ -109,7 +113,7 @@ def main():
     # Start the streaming query
     query = ohlcv_df.writeStream \
         .outputMode("update") \
-        .foreachBatch(write_to_sinks) \
+        .foreachBatch(write_to_kafka_sink) \
         .option("checkpointLocation", CHECKPOINT_LOCATION) \
         .trigger(processingTime="1 minute") \
         .start()

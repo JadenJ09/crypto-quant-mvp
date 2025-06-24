@@ -1,24 +1,13 @@
-# Use the official TimescaleDB image as a base
-FROM timescale/timescaledb-ha:pg16-ts2.14
+# Use the official pgvector image for PostgreSQL 17 as the source for the extension files
+FROM pgvector/pgvector:pg17 as pgvector
 
-# Switch to root user to install packages
-USER root
+# Use the TimescaleDB image for PostgreSQL 17 as the base
+FROM timescale/timescaledb-ha:pg17
 
-# Add PostgreSQL APT repository and install pgvector
-# See https://wiki.postgresql.org/wiki/Apt
-# And https://github.com/pgvector/pgvector#apt
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        curl \
-        gnupg \
-        lsb-release \
-    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/postgresql-archive-keyring.gpg \
-    && echo "deb [signed-by=/usr/share/keyrings/postgresql-archive-keyring.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends postgresql-16-pgvector \
-    && apt-get autoremove -y \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+# Copy the pgvector extension files from the pgvector image
+COPY --from=pgvector /usr/lib/postgresql/17/lib/vector.so /usr/lib/postgresql/17/lib/
+COPY --from=pgvector /usr/share/postgresql/17/extension/vector--*.sql /usr/share/postgresql/17/extension/
+COPY --from=pgvector /usr/share/postgresql/17/extension/vector.control /usr/share/postgresql/17/extension/
 
 # Switch back to the default postgres user
 USER postgres

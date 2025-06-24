@@ -1,0 +1,33 @@
+# services/data-recovery/pyproject.toml
+# This file defines the project metadata and dependencies for our data recovery service.
+# The 'uv' tool will use this file to create an isolated virtual environment.
+
+[project]
+name = "quant-data-recovery"
+version = "0.1.0"
+description = "Data recovery and gap-filling service for crypto time-series data"
+authors = [{ name = "Jaden J.", email = "your_email@example.com" }]
+requires-python = ">=3.11"
+dependencies = [
+    # PostgreSQL adapter for Python 3 - using psycopg3 as requested
+    "psycopg[binary]==3.1.19",
+
+    # HTTP library for making API requests to Binance REST API
+    "requests==2.31.0",
+
+    # Data validation library - matching ingestor version
+    "pydantic==2.7.4",
+
+    # The official, high-performance Kafka client from Confluent - matching ingestor
+    "confluent-kafka==2.4.0",
+]
+
+[tool.uv]
+# This section can be used for uv-specific configurations in the future.
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

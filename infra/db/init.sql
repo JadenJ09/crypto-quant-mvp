@@ -4,7 +4,7 @@
 
 -- The 'IF NOT EXISTS' clause prevents errors if the script is run again.
 CREATE EXTENSION IF NOT EXISTS timescaledb;
-CREATE EXTENSION IF NOT EXISTS pgvector;
+CREATE EXTENSION IF NOT EXISTS vector;
 
 -- Create the main table for our 1-minute OHLCV data.
 CREATE TABLE IF NOT EXISTS ohlcv_1min (

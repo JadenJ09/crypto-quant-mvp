@@ -51,7 +51,11 @@ services:
       # Allows topics to be created automatically when a producer sends a message to them.
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     healthcheck:
-      test: ["CMD-SHELL", "kafka-topics --bootstrap-server kafka:29092 --list || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "kafka-topics --bootstrap-server kafka:29092 --list || exit 1",
+        ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -91,7 +95,7 @@ services:
   #  PROCESSING TIER (NEWLY ADDED: P1-T3)
   # --------------------------------------------------------------------------
   spark-master:
-    image: bitnami/spark:3.5
+    image: bitnami/spark:3.5.1
     user: root
     container_name: spark-master
     networks:
@@ -112,7 +116,7 @@ services:
       - SPARK_SSL_ENABLED=no
 
   spark-worker:
-    image: bitnami/spark:3.5
+    image: bitnami/spark:3.5.1
     user: root
     container_name: spark-worker
     networks:
@@ -131,6 +135,33 @@ services:
       - SPARK_RPC_ENCRYPTION_ENABLED=no
       - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
       - SPARK_SSL_ENABLED=no
+
+    # Spark 잡을 자동으로 제출해주는 서비스
+  spark-job-submitter:
+    image: bitnami/spark:3.5.1
+    user: root
+    container_name: spark-job-submitter
+    networks:
+      - quant_network
+    depends_on:
+      - spark-master
+      - spark-worker
+    # spark-jobs 디렉토리를 컨테이너에 마운트합니다.
+    volumes:
+      - ./spark-jobs:/opt/bitnami/spark/jobs
+      - ./data:/opt/bitnami/spark/data # spark-job이 data 폴더에 접근해야 할 경우를 대비
+    # 이 서비스가 실행할 명령어입니다.
+    command:
+      - /bin/bash
+      - -c
+      - |
+        chmod +x /opt/bitnami/spark/jobs/ohlcv_aggregator.py
+        /opt/bitnami/spark/bin/spark-submit \
+          --master spark://spark-master:7077 \
+          --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,org.postgresql:postgresql:42.7.3 \
+          /opt/bitnami/spark/jobs/ohlcv_aggregator.py
+    # 잡 제출 후 컨테이너가 재시작되지 않도록 설정합니다.
+    restart: "no"
 
   # --------------------------------------------------------------------------
   #  APPLICATION TIER (Placeholders for now, to be built in next tasks)
@@ -180,34 +211,27 @@ services:
     # The 'restart' policy ensures it automatically comes back up if it crashes.
     restart: unless-stopped
 
-  # Spark 잡을 자동으로 제출해주는 서비스
-  spark-job-submitter:
-    image: bitnami/spark:3.5
-    user: root
-    container_name: spark-job-submitter
+  # Data Recovery Service - Detects gaps and backfills missing OHLCV data
+  data-recovery:
+    build:
+      context: ./services/data-recovery
+      dockerfile: Dockerfile
+    container_name: data-recovery
     networks:
       - quant_network
-    # spark-master가 시작된 후에 이 서비스가 시작되도록 보장합니다.
     depends_on:
-      - spark-master
-      - spark-worker
-    # spark-jobs 디렉토리를 컨테이너에 마운트합니다.
-    volumes:
-      - ./spark-jobs:/opt/bitnami/spark/jobs
-      - ./data:/opt/bitnami/spark/data # spark-job이 data 폴더에 접근해야 할 경우를 대비
-    # 이 서비스가 실행할 명령어입니다.
-    command: >
-      sh -c "
-        echo 'Waiting for Spark Master to be ready...' &&
-        sleep 15 &&
-        echo 'Submitting Spark job: ohlcv_aggregator.py' &&
-        /opt/bitnami/spark/bin/spark-submit \
-        --master spark://spark-master:7077 \
-        --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,io.delta:delta-spark_2.12:3.2.0 \
-        /opt/bitnami/spark/jobs/ohlcv_aggregator.py
-      "
-    # 잡 제출 후 컨테이너가 재시작되지 않도록 설정합니다.
-    restart: "no"
+      kafka:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      KAFKA_OUTPUT_TOPIC: "agg.ohlcv.1m"
+      RECOVERY_MODE: "continuous" # or "oneshot"
+      CHECK_INTERVAL_MINUTES: "10"
+      HOURS_BACK: "24"
+    restart: unless-stopped
 
   # The main backend API that will serve data to the frontend.
   # api:
