@@ -49,4 +49,9 @@ build/
 /data/
 
 #
-prd.md
+docs/
+scripts/
+Makefile
+*.bak
+*.tmp
+*.md

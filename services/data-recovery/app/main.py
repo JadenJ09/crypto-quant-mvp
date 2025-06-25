@@ -41,39 +41,74 @@ class DataRecoveryService:
         """Get database connection using psycopg3"""
         return psycopg.connect(self.database_url)
     
-    def detect_gaps(self, hours_back: int = 24) -> List[Tuple[datetime, str]]:
+    def detect_gaps(self, hours_back: int = 24, start_date: Optional[str] = None) -> List[Tuple[datetime, str]]:
         """
-        Detect missing 1-minute intervals for each symbol in the last N hours
+        Detect missing 1-minute intervals for each symbol in the last N hours or from a specific start date
         Returns list of (datetime, symbol) tuples for missing data
+        
+        Args:
+            hours_back: Number of hours to look back from now (ignored if start_date is provided)
+            start_date: Start date in YYYY-MM-DD format (e.g., "2025-01-01")
         """
         gaps = []
         
         with self.get_db_connection() as conn:
             with conn.cursor() as cur:
                 for symbol in self.symbols:
-                    # Find missing time intervals for this symbol
-                    query = """
-                    WITH expected_times AS (
-                        SELECT generate_series(
-                            date_trunc('minute', NOW() - INTERVAL '%s hours'),
-                            date_trunc('minute', NOW()),
-                            INTERVAL '1 minute'
-                        ) AS expected_time
-                    ),
-                    actual_times AS (
-                        SELECT DISTINCT time 
-                        FROM ohlcv_1min 
-                        WHERE symbol = %s 
-                        AND time >= NOW() - INTERVAL '%s hours'
-                    )
-                    SELECT et.expected_time
-                    FROM expected_times et
-                    LEFT JOIN actual_times at ON et.expected_time = at.time
-                    WHERE at.time IS NULL
-                    ORDER BY et.expected_time;
-                    """
+                    if start_date:
+                        # Use specific start date
+                        start_time = datetime.strptime(start_date, "%Y-%m-%d")
+                        end_time = datetime.now()
+                        
+                        query = """
+                        WITH expected_times AS (
+                            SELECT generate_series(
+                                date_trunc('minute', %s::timestamp),
+                                date_trunc('minute', NOW()),
+                                INTERVAL '1 minute'
+                            ) AS expected_time
+                        ),
+                        actual_times AS (
+                            SELECT DISTINCT time 
+                            FROM ohlcv_1min 
+                            WHERE symbol = %s 
+                            AND time >= %s::timestamp
+                        )
+                        SELECT et.expected_time
+                        FROM expected_times et
+                        LEFT JOIN actual_times at ON et.expected_time = at.time
+                        WHERE at.time IS NULL
+                        ORDER BY et.expected_time;
+                        """
+                        
+                        cur.execute(query, (start_time, symbol, start_time))
+                        logger.info(f"Checking for gaps in {symbol} from {start_date} to now")
+                    else:
+                        # Use hours_back from now
+                        query = """
+                        WITH expected_times AS (
+                            SELECT generate_series(
+                                date_trunc('minute', NOW() - INTERVAL '%s hours'),
+                                date_trunc('minute', NOW()),
+                                INTERVAL '1 minute'
+                            ) AS expected_time
+                        ),
+                        actual_times AS (
+                            SELECT DISTINCT time 
+                            FROM ohlcv_1min 
+                            WHERE symbol = %s 
+                            AND time >= NOW() - INTERVAL '%s hours'
+                        )
+                        SELECT et.expected_time
+                        FROM expected_times et
+                        LEFT JOIN actual_times at ON et.expected_time = at.time
+                        WHERE at.time IS NULL
+                        ORDER BY et.expected_time;
+                        """
+                        
+                        cur.execute(query, (hours_back, symbol, hours_back))
+                        logger.info(f"Checking for gaps in {symbol} for last {hours_back} hours")
                     
-                    cur.execute(query, (hours_back, symbol, hours_back))
                     missing_times = cur.fetchall()
                     
                     for (missing_time,) in missing_times:
@@ -230,12 +265,15 @@ class DataRecoveryService:
         
         return total_backfilled
     
-    def run_gap_detection_cycle(self, hours_back: int = 24):
+    def run_gap_detection_cycle(self, hours_back: int = 24, start_date: Optional[str] = None):
         """Run one cycle of gap detection and backfilling"""
-        logger.info(f"Starting gap detection for last {hours_back} hours...")
+        if start_date:
+            logger.info(f"Starting gap detection from {start_date}...")
+        else:
+            logger.info(f"Starting gap detection for last {hours_back} hours...")
         
         # Detect gaps
-        gaps = self.detect_gaps(hours_back)
+        gaps = self.detect_gaps(hours_back, start_date)
         
         if not gaps:
             logger.info("No gaps detected!")
@@ -276,9 +314,16 @@ def main():
     mode = os.getenv("RECOVERY_MODE", "continuous")
     
     if mode == "oneshot":
-        # Run one-time gap detection for last 24 hours
+        # Run one-time gap detection
         hours_back = int(os.getenv("HOURS_BACK", "24"))
-        service.run_gap_detection_cycle(hours_back)
+        start_date = os.getenv("START_DATE")  # Optional: YYYY-MM-DD format
+        
+        if start_date:
+            logger.info(f"Running one-time recovery from {start_date}")
+            service.run_gap_detection_cycle(start_date=start_date)
+        else:
+            logger.info(f"Running one-time recovery for last {hours_back} hours")
+            service.run_gap_detection_cycle(hours_back)
     else:
         # Run continuous monitoring
         check_interval = int(os.getenv("CHECK_INTERVAL_MINUTES", "10"))

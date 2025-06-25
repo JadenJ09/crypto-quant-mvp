@@ -23,6 +23,9 @@ services:
     ports:
       # Exposes Kafka to the host machine for local tools or testing.
       - "9092:9092"
+    volumes:
+      # Persist Kafka logs and data
+      - kafka_data:/var/lib/kafka/data
     environment:
       # --- KRaft Mode Configuration (No Zookeeper Needed) ---
       # Uniquely identifies this node in the cluster.
@@ -232,6 +235,54 @@ services:
       CHECK_INTERVAL_MINUTES: "10"
       HOURS_BACK: "24"
     restart: unless-stopped
+    profiles:
+      - realtime
+
+  # Historical Data Collection Service - One-time collection of historical data
+  historical-collector:
+    build:
+      context: ./services/data-recovery
+      dockerfile: Dockerfile
+    container_name: historical-collector
+    networks:
+      - quant_network
+    depends_on:
+      kafka:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      KAFKA_OUTPUT_TOPIC: "agg.ohlcv.1m"
+      RECOVERY_MODE: "oneshot"
+      START_DATE: "2025-01-01" # Collect data from this date
+    restart: "no"
+    profiles:
+      - historical
+
+  # Gap Recovery Service - One-time gap detection and backfilling
+  gap-recovery:
+    build:
+      context: ./services/data-recovery
+      dockerfile: Dockerfile
+    container_name: gap-recovery
+    networks:
+      - quant_network
+    depends_on:
+      kafka:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      KAFKA_OUTPUT_TOPIC: "agg.ohlcv.1m"
+      RECOVERY_MODE: "oneshot"
+      HOURS_BACK: "24"
+    restart: "no"
+    profiles:
+      - recovery
 
   # The main backend API that will serve data to the frontend.
   # api:
@@ -259,4 +310,17 @@ services:
 # Named volumes provide persistent storage for our stateful services.
 volumes:
   timescale_data:
+    driver: local
+    # Optional: specify a custom location on host for backup purposes
+    # driver_opts:
+    #   o: bind
+    #   type: none
+    #   device: /path/to/your/data/directory
+
+  # Volume for Kafka data persistence (optional but recommended)
+  kafka_data:
+    driver: local
+
+  # Volume for Spark checkpoints and Delta Lake data
+  spark_data:
     driver: local

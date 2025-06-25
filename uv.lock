@@ -1028,6 +1028,18 @@ wheels = [
 ]
 
 [[package]]
+name = "psycopg-pool"
+version = "3.2.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/56/06/9a2c9fee1c761c5674adcd0739948e649a6ae4c3a47b2f1ce76e25d40447/psycopg-pool-3.2.1.tar.gz", hash = "sha256:6509a75c073590952915eddbba7ce8b8332a440a31e77bba69561483492829ad", size = 29264 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cc/39/9d0986d5a136d350ea031f7f360e0d3059924c502647530b08de82e4a663/psycopg_pool-3.2.1-py3-none-any.whl", hash = "sha256:060b551d1b97a8d358c668be58b637780b884de14d861f4f5ecc48b7563aafb7", size = 37731 },
+]
+
+[[package]]
 name = "py4j"
 version = "0.10.9.9"
 source = { registry = "https://pypi.org/simple" }
@@ -1258,6 +1270,7 @@ source = { virtual = "services/db-writer" }
 dependencies = [
     { name = "confluent-kafka" },
     { name = "psycopg", extra = ["binary"] },
+    { name = "psycopg-pool" },
     { name = "pydantic" },
     { name = "python-dotenv" },
 ]
@@ -1266,6 +1279,7 @@ dependencies = [
 requires-dist = [
     { name = "confluent-kafka", specifier = "==2.4.0" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.1.19" },
+    { name = "psycopg-pool", specifier = "==3.2.1" },
     { name = "pydantic", specifier = "==2.7.4" },
     { name = "python-dotenv", specifier = ">=1.1.1" },
 ]
