@@ -1,0 +1,38 @@
+[project]
+name = "bulk-loader"
+version = "0.1.0"
+description = "High-performance bulk historical data loader"
+authors = [{ name = "Crypto Quant MVP", email = "admin@cryptoquant.com" }]
+license = { text = "MIT" }
+requires-python = ">=3.11"
+
+dependencies = [
+    "pandas>=2.0.0",
+    "psycopg[binary]>=3.1.19",
+    "psycopg-pool>=3.2.1",
+    "requests>=2.31.0",
+    "python-dotenv>=1.0.0",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.black]
+line-length = 88
+target-version = ['py311']
+
+[tool.flake8]
+max-line-length = 88
+exclude = [".git", "__pycache__", "build", "dist"]

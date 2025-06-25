@@ -206,11 +206,17 @@ services:
     container_name: ingestor
     networks:
       - quant_network
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+      - 1.1.1.1
     depends_on:
       kafka:
         condition: service_healthy
     environment:
       KAFKA_BOOTSTRAP_SERVERS: "kafka:29092" # "29092" is the internal Docker network port.
+      BINANCE_API_KEY: ${BINANCE_API_KEY}
+      BINANCE_SECRET_KEY: ${BINANCE_SECRET_KEY}
     # The 'restart' policy ensures it automatically comes back up if it crashes.
     restart: unless-stopped
 
@@ -222,6 +228,10 @@ services:
     container_name: data-recovery
     networks:
       - quant_network
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+      - 1.1.1.1
     depends_on:
       kafka:
         condition: service_healthy
@@ -233,33 +243,14 @@ services:
       KAFKA_OUTPUT_TOPIC: "agg.ohlcv.1m"
       RECOVERY_MODE: "continuous" # or "oneshot"
       CHECK_INTERVAL_MINUTES: "10"
-      HOURS_BACK: "24"
+      HOURS_BACK: ${HOURS_BACK:-72} # Check last 3 days for more comprehensive monitoring
+      START_DATE: ${START_DATE:-2025-01-01} # Gap detection start date
+      END_DATE: ${END_DATE:-2025-06-25} # Gap detection end date
+      BINANCE_API_KEY: ${BINANCE_API_KEY}
+      BINANCE_SECRET_KEY: ${BINANCE_SECRET_KEY}
     restart: unless-stopped
     profiles:
       - realtime
-
-  # Historical Data Collection Service - One-time collection of historical data
-  historical-collector:
-    build:
-      context: ./services/data-recovery
-      dockerfile: Dockerfile
-    container_name: historical-collector
-    networks:
-      - quant_network
-    depends_on:
-      kafka:
-        condition: service_healthy
-      timescaledb:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
-      KAFKA_OUTPUT_TOPIC: "agg.ohlcv.1m"
-      RECOVERY_MODE: "oneshot"
-      START_DATE: "2025-01-01" # Collect data from this date
-    restart: "no"
-    profiles:
-      - historical
 
   # Gap Recovery Service - One-time gap detection and backfilling
   gap-recovery:
@@ -269,6 +260,10 @@ services:
     container_name: gap-recovery
     networks:
       - quant_network
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+      - 1.1.1.1
     depends_on:
       kafka:
         condition: service_healthy
@@ -279,10 +274,70 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
       KAFKA_OUTPUT_TOPIC: "agg.ohlcv.1m"
       RECOVERY_MODE: "oneshot"
-      HOURS_BACK: "24"
+      HOURS_BACK: ${HOURS_BACK:-168} # Check last 7 days for one-time recovery
+      START_DATE: ${START_DATE:-2025-01-01} # Gap detection start date
+      END_DATE: ${END_DATE:-2025-06-25} # Gap detection end date
+      BINANCE_API_KEY: ${BINANCE_API_KEY}
+      BINANCE_SECRET_KEY: ${BINANCE_SECRET_KEY}
     restart: "no"
     profiles:
       - recovery
+
+  # Hybrid Historical Data Collection Service - Intelligent gap detection and filling
+  historical-collector:
+    build:
+      context: ./services/historical-collector
+      dockerfile: Dockerfile
+    container_name: historical-collector
+    networks:
+      - quant_network
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+      - 1.1.1.1
+    depends_on:
+      kafka:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      KAFKA_OUTPUT_TOPIC: "agg.ohlcv.1m"
+      START_DATE: ${START_DATE:-2025-01-01} # Gap detection start date
+      END_DATE: ${END_DATE:-2025-06-25} # Gap detection end date
+      MAX_WORKERS: ${MAX_WORKERS:-4} # Parallel symbol processing
+      BINANCE_API_KEY: ${BINANCE_API_KEY}
+      BINANCE_SECRET_KEY: ${BINANCE_SECRET_KEY}
+    restart: "no"
+    profiles:
+      - historical
+
+  # High-Performance Bulk Historical Data Loader - Direct API to DB for maximum speed
+  bulk-loader:
+    build:
+      context: ./services/bulk-loader
+      dockerfile: Dockerfile
+    container_name: bulk-loader
+    networks:
+      - quant_network
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+      - 1.1.1.1
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      BINANCE_API_KEY: ${BINANCE_API_KEY}
+      BINANCE_SECRET_KEY: ${BINANCE_SECRET_KEY}
+      START_DATE: ${START_DATE:-2025-01-01}
+      END_DATE: ${END_DATE:-2025-06-25}
+      MAX_WORKERS: ${MAX_WORKERS:-4}
+    restart: "no"
+    profiles:
+      - bulk-load
 
   # The main backend API that will serve data to the frontend.
   # api:

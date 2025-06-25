@@ -1,6 +1,7 @@
 import os
 import psycopg
 import requests
+import urllib3.util.retry
 import json
 import logging
 import time
@@ -23,6 +24,10 @@ class DataRecoveryService:
         self.kafka_servers = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:29092")
         self.kafka_topic = os.getenv("KAFKA_OUTPUT_TOPIC", "agg.ohlcv.1m")
         
+        # Binance API configuration
+        self.binance_api_key = os.getenv("BINANCE_API_KEY")
+        self.binance_secret_key = os.getenv("BINANCE_SECRET_KEY")
+        
         # Symbols to monitor (same as ingestor)
         self.symbols = [
             'BTCUSDT', 'ETHUSDT', 'XRPUSDT', 'ADAUSDT', 
@@ -35,13 +40,17 @@ class DataRecoveryService:
             'client.id': 'data-recovery-service'
         })
         
-        logger.info("Data Recovery Service initialized")
+        if self.binance_api_key:
+            logger.info("Data Recovery Service initialized with API key authentication")
+        else:
+            logger.info("Data Recovery Service initialized with public API access")
+            logger.warning("Consider adding BINANCE_API_KEY for higher rate limits")
     
     def get_db_connection(self):
         """Get database connection using psycopg3"""
         return psycopg.connect(self.database_url)
     
-    def detect_gaps(self, hours_back: int = 24, start_date: Optional[str] = None) -> List[Tuple[datetime, str]]:
+    def detect_gaps(self, hours_back: int = 24, start_date: Optional[str] = None, end_date: Optional[str] = None) -> List[Tuple[datetime, str]]:
         """
         Detect missing 1-minute intervals for each symbol in the last N hours or from a specific start date
         Returns list of (datetime, symbol) tuples for missing data
@@ -49,6 +58,7 @@ class DataRecoveryService:
         Args:
             hours_back: Number of hours to look back from now (ignored if start_date is provided)
             start_date: Start date in YYYY-MM-DD format (e.g., "2025-01-01")
+            end_date: End date in YYYY-MM-DD format (e.g., "2025-06-25"), defaults to NOW() if not provided
         """
         gaps = []
         
@@ -58,13 +68,16 @@ class DataRecoveryService:
                     if start_date:
                         # Use specific start date
                         start_time = datetime.strptime(start_date, "%Y-%m-%d")
-                        end_time = datetime.now()
+                        if end_date:
+                            end_time = datetime.strptime(end_date, "%Y-%m-%d")
+                        else:
+                            end_time = datetime.now()
                         
                         query = """
                         WITH expected_times AS (
                             SELECT generate_series(
                                 date_trunc('minute', %s::timestamp),
-                                date_trunc('minute', NOW()),
+                                date_trunc('minute', %s::timestamp),
                                 INTERVAL '1 minute'
                             ) AS expected_time
                         ),
@@ -73,6 +86,7 @@ class DataRecoveryService:
                             FROM ohlcv_1min 
                             WHERE symbol = %s 
                             AND time >= %s::timestamp
+                            AND time <= %s::timestamp
                         )
                         SELECT et.expected_time
                         FROM expected_times et
@@ -81,8 +95,11 @@ class DataRecoveryService:
                         ORDER BY et.expected_time;
                         """
                         
-                        cur.execute(query, (start_time, symbol, start_time))
-                        logger.info(f"Checking for gaps in {symbol} from {start_date} to now")
+                        cur.execute(query, (start_time, end_time, symbol, start_time, end_time))
+                        if end_date:
+                            logger.info(f"Checking for gaps in {symbol} from {start_date} to {end_date}")
+                        else:
+                            logger.info(f"Checking for gaps in {symbol} from {start_date} to now")
                     else:
                         # Use hours_back from now
                         query = """
@@ -121,7 +138,7 @@ class DataRecoveryService:
     
     def get_binance_klines(self, symbol: str, start_time: datetime, end_time: datetime) -> Optional[List]:
         """
-        Fetch historical 1-minute klines from Binance REST API
+        Fetch historical 1-minute klines from Binance REST API with robust retry logic
         """
         url = "https://api.binance.com/api/v3/klines"
         params = {
@@ -132,18 +149,86 @@ class DataRecoveryService:
             'limit': 1000  # Maximum allowed by Binance
         }
         
-        try:
-            response = requests.get(url, params=params, timeout=10)
-            response.raise_for_status()
-            
-            klines_data = response.json()
-            logger.info(f"Retrieved {len(klines_data)} klines for {symbol}")
-            
-            return klines_data
-            
-        except requests.RequestException as e:
-            logger.error(f"Error fetching Binance data for {symbol}: {e}")
-            return None
+        # Add API key headers if available
+        headers = {}
+        if self.binance_api_key:
+            headers['X-MBX-APIKEY'] = self.binance_api_key
+        
+        max_retries = 5
+        base_delay = 2  # Base delay in seconds
+        
+        for attempt in range(max_retries):
+            try:
+                # Exponential backoff with jitter
+                if attempt > 0:
+                    delay = base_delay * (2 ** (attempt - 1)) + (attempt * 0.5)  # Add jitter
+                    logger.info(f"Retrying Binance API call for {symbol} in {delay:.1f} seconds (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(delay)
+                
+                # Add session for connection pooling and DNS caching
+                session = requests.Session()
+                adapter = requests.adapters.HTTPAdapter(
+                    pool_connections=10,
+                    pool_maxsize=10,
+                    max_retries=urllib3.util.retry.Retry(
+                        total=0,  # We handle retries manually
+                        backoff_factor=0.1,
+                        status_forcelist=[500, 502, 503, 504]
+                    )
+                )
+                session.mount('https://', adapter)
+                
+                response = session.get(
+                    url, 
+                    params=params, 
+                    headers=headers,
+                    timeout=(10, 30)  # (connect_timeout, read_timeout)
+                )
+                response.raise_for_status()
+                
+                klines_data = response.json()
+                logger.info(f"Retrieved {len(klines_data)} klines for {symbol}")
+                
+                return klines_data
+                
+            except requests.exceptions.ConnectionError as e:
+                if "Temporary failure in name resolution" in str(e) or "Failed to resolve" in str(e):
+                    logger.warning(f"DNS resolution failed for {symbol} (attempt {attempt + 1}/{max_retries}): {e}")
+                    # For DNS issues, wait longer before retry
+                    if attempt < max_retries - 1:
+                        time.sleep(min(30, base_delay * (2 ** attempt)))
+                else:
+                    logger.warning(f"Connection error for {symbol} (attempt {attempt + 1}/{max_retries}): {e}")
+                
+                if attempt == max_retries - 1:
+                    logger.error(f"Failed to connect to Binance API for {symbol} after {max_retries} attempts")
+                    return None
+                    
+            except requests.exceptions.Timeout as e:
+                logger.warning(f"Timeout error for {symbol} (attempt {attempt + 1}/{max_retries}): {e}")
+                
+                if attempt == max_retries - 1:
+                    logger.error(f"Request timeout for {symbol} after {max_retries} attempts")
+                    return None
+                    
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 429:  # Rate limit
+                    logger.warning(f"Rate limit hit for {symbol} (attempt {attempt + 1}/{max_retries})")
+                    if attempt == max_retries - 1:
+                        logger.error(f"Rate limit exceeded for {symbol} after {max_retries} attempts")
+                        return None
+                else:
+                    logger.error(f"HTTP error for {symbol}: {e}")
+                    return None
+                    
+            except requests.RequestException as e:
+                logger.warning(f"Request error for {symbol} (attempt {attempt + 1}/{max_retries}): {e}")
+                
+                if attempt == max_retries - 1:
+                    logger.error(f"Request failed for {symbol} after {max_retries} attempts")
+                    return None
+        
+        return None
     
     def convert_binance_to_ohlcv(self, klines_data: List, symbol: str) -> List[Dict]:
         """
@@ -265,15 +350,18 @@ class DataRecoveryService:
         
         return total_backfilled
     
-    def run_gap_detection_cycle(self, hours_back: int = 24, start_date: Optional[str] = None):
+    def run_gap_detection_cycle(self, hours_back: int = 24, start_date: Optional[str] = None, end_date: Optional[str] = None):
         """Run one cycle of gap detection and backfilling"""
         if start_date:
-            logger.info(f"Starting gap detection from {start_date}...")
+            if end_date:
+                logger.info(f"Starting gap detection from {start_date} to {end_date}...")
+            else:
+                logger.info(f"Starting gap detection from {start_date} to now...")
         else:
             logger.info(f"Starting gap detection for last {hours_back} hours...")
         
         # Detect gaps
-        gaps = self.detect_gaps(hours_back, start_date)
+        gaps = self.detect_gaps(hours_back, start_date, end_date)
         
         if not gaps:
             logger.info("No gaps detected!")
@@ -312,18 +400,26 @@ def main():
     
     # Check if running in one-time mode or continuous mode
     mode = os.getenv("RECOVERY_MODE", "continuous")
+    start_date = os.getenv("START_DATE")  # Optional: YYYY-MM-DD format
+    
+    # If START_DATE is provided, force oneshot mode
+    if start_date:
+        mode = "oneshot"
+        logger.info(f"START_DATE provided ({start_date}), forcing oneshot mode")
     
     if mode == "oneshot":
         # Run one-time gap detection
         hours_back = int(os.getenv("HOURS_BACK", "24"))
-        start_date = os.getenv("START_DATE")  # Optional: YYYY-MM-DD format
+        end_date = os.getenv("END_DATE")  # Optional: YYYY-MM-DD format
         
         if start_date:
-            logger.info(f"Running one-time recovery from {start_date}")
-            service.run_gap_detection_cycle(start_date=start_date)
+            logger.info(f"Running one-time recovery from {start_date} to {end_date or 'now'}")
+            service.run_gap_detection_cycle(start_date=start_date, end_date=end_date)
         else:
             logger.info(f"Running one-time recovery for last {hours_back} hours")
             service.run_gap_detection_cycle(hours_back)
+        
+        logger.info("One-shot recovery completed. Exiting.")
     else:
         # Run continuous monitoring
         check_interval = int(os.getenv("CHECK_INTERVAL_MINUTES", "10"))

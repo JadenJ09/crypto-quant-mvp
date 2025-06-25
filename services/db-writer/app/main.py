@@ -74,16 +74,34 @@ def upsert_ohlcv_batch(pool: ConnectionPool, bars: list[OHLCVBar]):
     """
     Inserts or updates a batch of OHLCV bars using a high-performance
     COPY to a temporary table followed by an INSERT ... ON CONFLICT.
+    Handles deduplication within the batch to prevent ON CONFLICT errors.
     """
     if not bars:
         return 0
+
+    # Deduplicate bars within the batch - keep the latest record for each (symbol, time) pair
+    deduplicated_bars = {}
+    for bar in bars:
+        key = (bar.symbol, bar.time)
+        deduplicated_bars[key] = bar  # This will overwrite duplicates, keeping the last one
+    
+    final_bars = list(deduplicated_bars.values())
+    
+    if len(final_bars) != len(bars):
+        logging.info(f"Deduplicated batch: {len(bars)} -> {len(final_bars)} bars")
 
     # The fields must match the order in ohlcv_1min_temp
     cols = ["time", "symbol", "open", "high", "low", "close", "volume"]
     
     sql_upsert_from_temp = """
+    WITH deduplicated AS (
+        SELECT DISTINCT ON (symbol, time) 
+            time, symbol, open, high, low, close, volume
+        FROM ohlcv_1min_temp
+        ORDER BY symbol, time, volume DESC  -- In case of duplicates, keep the one with highest volume
+    )
     INSERT INTO ohlcv_1min (time, symbol, open, high, low, close, volume)
-    SELECT time, symbol, open, high, low, close, volume FROM ohlcv_1min_temp
+    SELECT time, symbol, open, high, low, close, volume FROM deduplicated
     ON CONFLICT (symbol, time) DO UPDATE SET
         open = EXCLUDED.open,
         high = EXCLUDED.high,
@@ -96,10 +114,13 @@ def upsert_ohlcv_batch(pool: ConnectionPool, bars: list[OHLCVBar]):
         # Get a connection from the pool
         with pool.connection() as conn:
             with conn.cursor() as cur:
+                # 0. Ensure temp table is clean
+                cur.execute("TRUNCATE ohlcv_1min_temp")
+                
                 # 1. Use COPY to efficiently load data into the temp table
                 with io.StringIO() as buffer:
                     writer = csv.writer(buffer, delimiter='\t', quotechar='"')
-                    for bar in bars:
+                    for bar in final_bars:
                         writer.writerow([getattr(bar, col) for col in cols])
                     
                     buffer.seek(0)
@@ -113,7 +134,7 @@ def upsert_ohlcv_batch(pool: ConnectionPool, bars: list[OHLCVBar]):
                 cur.execute("TRUNCATE ohlcv_1min_temp")
 
                 conn.commit()
-                return len(bars)
+                return len(final_bars)
     except psycopg.Error as e:
         logging.error(f"Database error during batch upsert: {e}")
         # The pool handles connection state, no need for conn.rollback() here
