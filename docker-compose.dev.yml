@@ -340,27 +340,43 @@ services:
       - bulk-load
 
   # The main backend API that will serve data to the frontend.
-  # api:
-  #   # We will create the Dockerfile and app for this in task P1-T5.
-  #   build:
-  #     context: ./services/api
-  #     dockerfile: Dockerfile
-  #   container_name: api
-  #   networks:
-  #     - quant_network
-  #   ports:
-  #     - "8000:8000"
-  #   volumes:
-  #     # Live-reloading: Any changes you make to the 'app' code on your host machine
-  #     # are immediately reflected inside the running container.
-  #     - ./services/api/app:/app/app
-  #   depends_on:
-  #     - timescaledb
-  #     - kafka
-  #   environment:
-  #     DATABASE_URL: ${POSTGRES_URL}
-  #     KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
-  #   restart: unless-stopped
+  api:
+    # We will create the Dockerfile and app for this in task P1-T5.
+    build:
+      context: ./services/api
+      dockerfile: Dockerfile
+    container_name: api
+    networks:
+      - quant_network
+    ports:
+      - "8000:8000"
+    volumes:
+      # Live-reloading: Any changes you make to the 'app' code on your host machine
+      # are immediately reflected inside the running container.
+      - ./services/api/app:/app/app
+    depends_on:
+      - timescaledb
+      - kafka
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+    restart: unless-stopped
+
+  # Frontend service
+  frontend:
+    build:
+      context: ./services/frontend
+      dockerfile: Dockerfile
+    image: crypto_quant_mvp/frontend
+    hostname: frontend
+    container_name: frontend
+    networks:
+      - quant_network
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+    restart: unless-stopped
 
 # Named volumes provide persistent storage for our stateful services.
 volumes:
