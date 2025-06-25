@@ -481,3 +481,184 @@ BEGIN
     RAISE NOTICE 'Bootstrap complete! All timeframe tables populated from 1-minute data.';
 END;
 $$ LANGUAGE plpgsql;
+
+-- Function to automatically update timeframe tables when new 1min data is inserted
+CREATE OR REPLACE FUNCTION update_timeframes_on_1min_insert()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Update 5min table
+    INSERT INTO ohlcv_5min (time, symbol, open, high, low, close, volume)
+    SELECT 
+        time_bucket('5 minutes', NEW.time) AS time,
+        NEW.symbol,
+        first(open, time) AS open,
+        max(high) AS high,
+        min(low) AS low,
+        last(close, time) AS close,
+        sum(volume) AS volume
+    FROM ohlcv_1min 
+    WHERE symbol = NEW.symbol 
+    AND time >= time_bucket('5 minutes', NEW.time)
+    AND time < time_bucket('5 minutes', NEW.time) + INTERVAL '5 minutes'
+    GROUP BY time_bucket('5 minutes', NEW.time), symbol
+    ON CONFLICT (symbol, time) DO UPDATE SET
+        open = (SELECT first(open, time) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('5 minutes', NEW.time) AND time < time_bucket('5 minutes', NEW.time) + INTERVAL '5 minutes'),
+        high = (SELECT max(high) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('5 minutes', NEW.time) AND time < time_bucket('5 minutes', NEW.time) + INTERVAL '5 minutes'),
+        low = (SELECT min(low) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('5 minutes', NEW.time) AND time < time_bucket('5 minutes', NEW.time) + INTERVAL '5 minutes'),
+        close = (SELECT last(close, time) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('5 minutes', NEW.time) AND time < time_bucket('5 minutes', NEW.time) + INTERVAL '5 minutes'),
+        volume = (SELECT sum(volume) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('5 minutes', NEW.time) AND time < time_bucket('5 minutes', NEW.time) + INTERVAL '5 minutes');
+
+    -- Update 15min table
+    INSERT INTO ohlcv_15min (time, symbol, open, high, low, close, volume)
+    SELECT 
+        time_bucket('15 minutes', NEW.time) AS time,
+        NEW.symbol,
+        first(open, time) AS open,
+        max(high) AS high,
+        min(low) AS low,
+        last(close, time) AS close,
+        sum(volume) AS volume
+    FROM ohlcv_1min 
+    WHERE symbol = NEW.symbol 
+    AND time >= time_bucket('15 minutes', NEW.time)
+    AND time < time_bucket('15 minutes', NEW.time) + INTERVAL '15 minutes'
+    GROUP BY time_bucket('15 minutes', NEW.time), symbol
+    ON CONFLICT (symbol, time) DO UPDATE SET
+        open = (SELECT first(open, time) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('15 minutes', NEW.time) AND time < time_bucket('15 minutes', NEW.time) + INTERVAL '15 minutes'),
+        high = (SELECT max(high) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('15 minutes', NEW.time) AND time < time_bucket('15 minutes', NEW.time) + INTERVAL '15 minutes'),
+        low = (SELECT min(low) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('15 minutes', NEW.time) AND time < time_bucket('15 minutes', NEW.time) + INTERVAL '15 minutes'),
+        close = (SELECT last(close, time) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('15 minutes', NEW.time) AND time < time_bucket('15 minutes', NEW.time) + INTERVAL '15 minutes'),
+        volume = (SELECT sum(volume) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('15 minutes', NEW.time) AND time < time_bucket('15 minutes', NEW.time) + INTERVAL '15 minutes');
+
+    -- Update 1hour table
+    INSERT INTO ohlcv_1hour (time, symbol, open, high, low, close, volume)
+    SELECT 
+        time_bucket('1 hour', NEW.time) AS time,
+        NEW.symbol,
+        first(open, time) AS open,
+        max(high) AS high,
+        min(low) AS low,
+        last(close, time) AS close,
+        sum(volume) AS volume
+    FROM ohlcv_1min 
+    WHERE symbol = NEW.symbol 
+    AND time >= time_bucket('1 hour', NEW.time)
+    AND time < time_bucket('1 hour', NEW.time) + INTERVAL '1 hour'
+    GROUP BY time_bucket('1 hour', NEW.time), symbol
+    ON CONFLICT (symbol, time) DO UPDATE SET
+        open = (SELECT first(open, time) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('1 hour', NEW.time) AND time < time_bucket('1 hour', NEW.time) + INTERVAL '1 hour'),
+        high = (SELECT max(high) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('1 hour', NEW.time) AND time < time_bucket('1 hour', NEW.time) + INTERVAL '1 hour'),
+        low = (SELECT min(low) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('1 hour', NEW.time) AND time < time_bucket('1 hour', NEW.time) + INTERVAL '1 hour'),
+        close = (SELECT last(close, time) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('1 hour', NEW.time) AND time < time_bucket('1 hour', NEW.time) + INTERVAL '1 hour'),
+        volume = (SELECT sum(volume) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('1 hour', NEW.time) AND time < time_bucket('1 hour', NEW.time) + INTERVAL '1 hour');
+
+    -- Update 4hour table
+    INSERT INTO ohlcv_4hour (time, symbol, open, high, low, close, volume)
+    SELECT 
+        time_bucket('4 hours', NEW.time) AS time,
+        NEW.symbol,
+        first(open, time) AS open,
+        max(high) AS high,
+        min(low) AS low,
+        last(close, time) AS close,
+        sum(volume) AS volume
+    FROM ohlcv_1min 
+    WHERE symbol = NEW.symbol 
+    AND time >= time_bucket('4 hours', NEW.time)
+    AND time < time_bucket('4 hours', NEW.time) + INTERVAL '4 hours'
+    GROUP BY time_bucket('4 hours', NEW.time), symbol
+    ON CONFLICT (symbol, time) DO UPDATE SET
+        open = (SELECT first(open, time) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('4 hours', NEW.time) AND time < time_bucket('4 hours', NEW.time) + INTERVAL '4 hours'),
+        high = (SELECT max(high) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('4 hours', NEW.time) AND time < time_bucket('4 hours', NEW.time) + INTERVAL '4 hours'),
+        low = (SELECT min(low) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('4 hours', NEW.time) AND time < time_bucket('4 hours', NEW.time) + INTERVAL '4 hours'),
+        close = (SELECT last(close, time) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('4 hours', NEW.time) AND time < time_bucket('4 hours', NEW.time) + INTERVAL '4 hours'),
+        volume = (SELECT sum(volume) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('4 hours', NEW.time) AND time < time_bucket('4 hours', NEW.time) + INTERVAL '4 hours');
+
+    -- Update 1day table
+    INSERT INTO ohlcv_1day (time, symbol, open, high, low, close, volume)
+    SELECT 
+        time_bucket('1 day', NEW.time) AS time,
+        NEW.symbol,
+        first(open, time) AS open,
+        max(high) AS high,
+        min(low) AS low,
+        last(close, time) AS close,
+        sum(volume) AS volume
+    FROM ohlcv_1min 
+    WHERE symbol = NEW.symbol 
+    AND time >= time_bucket('1 day', NEW.time)
+    AND time < time_bucket('1 day', NEW.time) + INTERVAL '1 day'
+    GROUP BY time_bucket('1 day', NEW.time), symbol
+    ON CONFLICT (symbol, time) DO UPDATE SET
+        open = (SELECT first(open, time) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('1 day', NEW.time) AND time < time_bucket('1 day', NEW.time) + INTERVAL '1 day'),
+        high = (SELECT max(high) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('1 day', NEW.time) AND time < time_bucket('1 day', NEW.time) + INTERVAL '1 day'),
+        low = (SELECT min(low) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('1 day', NEW.time) AND time < time_bucket('1 day', NEW.time) + INTERVAL '1 day'),
+        close = (SELECT last(close, time) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('1 day', NEW.time) AND time < time_bucket('1 day', NEW.time) + INTERVAL '1 day'),
+        volume = (SELECT sum(volume) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('1 day', NEW.time) AND time < time_bucket('1 day', NEW.time) + INTERVAL '1 day');
+
+    -- Update 7day table
+    INSERT INTO ohlcv_7day (time, symbol, open, high, low, close, volume)
+    SELECT 
+        time_bucket('7 days', NEW.time) AS time,
+        NEW.symbol,
+        first(open, time) AS open,
+        max(high) AS high,
+        min(low) AS low,
+        last(close, time) AS close,
+        sum(volume) AS volume
+    FROM ohlcv_1min 
+    WHERE symbol = NEW.symbol 
+    AND time >= time_bucket('7 days', NEW.time)
+    AND time < time_bucket('7 days', NEW.time) + INTERVAL '7 days'
+    GROUP BY time_bucket('7 days', NEW.time), symbol
+    ON CONFLICT (symbol, time) DO UPDATE SET
+        open = (SELECT first(open, time) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('7 days', NEW.time) AND time < time_bucket('7 days', NEW.time) + INTERVAL '7 days'),
+        high = (SELECT max(high) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('7 days', NEW.time) AND time < time_bucket('7 days', NEW.time) + INTERVAL '7 days'),
+        low = (SELECT min(low) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('7 days', NEW.time) AND time < time_bucket('7 days', NEW.time) + INTERVAL '7 days'),
+        close = (SELECT last(close, time) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('7 days', NEW.time) AND time < time_bucket('7 days', NEW.time) + INTERVAL '7 days'),
+        volume = (SELECT sum(volume) FROM ohlcv_1min WHERE symbol = NEW.symbol AND time >= time_bucket('7 days', NEW.time) AND time < time_bucket('7 days', NEW.time) + INTERVAL '7 days');
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create trigger to automatically update timeframes when new 1min data is inserted
+CREATE TRIGGER trigger_update_timeframes_on_1min_insert
+    AFTER INSERT ON ohlcv_1min
+    FOR EACH ROW
+    EXECUTE FUNCTION update_timeframes_on_1min_insert();
+
+-- Function to backfill any missing timeframe data (run this periodically)
+CREATE OR REPLACE FUNCTION backfill_missing_timeframe_data()
+RETURNS VOID AS $$
+BEGIN
+    -- This function can be called periodically to ensure no data is missing
+    -- It will only insert data that doesn't already exist
+    
+    RAISE NOTICE 'Starting backfill of missing timeframe data...';
+    
+    -- Use the existing bootstrap function to fill any gaps
+    PERFORM bootstrap_timeframe_tables();
+    
+    RAISE NOTICE 'Backfill complete!';
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create a scheduled job to run backfill periodically (every hour)
+-- This ensures that any missed updates are caught
+SELECT add_job('backfill_missing_timeframe_data', '1 hour');
+
+-- Initial population: Bootstrap all timeframes from existing 1min data
+-- This will populate all timeframes with any existing 1min data
+SELECT bootstrap_timeframe_tables();
+
+-- Notify that automatic population is now active
+DO $$
+BEGIN
+    RAISE NOTICE '=================================================';
+    RAISE NOTICE 'AUTOMATIC TIMEFRAME POPULATION IS NOW ACTIVE!';
+    RAISE NOTICE '=================================================';
+    RAISE NOTICE 'New 1min data will automatically populate all timeframes';
+    RAISE NOTICE 'Backfill job runs every hour to catch any missed updates';
+    RAISE NOTICE 'All existing 1min data has been bootstrapped to timeframes';
+END $$;
