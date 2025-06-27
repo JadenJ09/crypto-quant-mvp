@@ -76,7 +76,7 @@ services:
       - quant_network
     ports:
       # Exposes the PostgreSQL port to the host machine for DB tools like DBeaver or pgAdmin.
-      - "5433:5432"
+      - "5433:5433" # Both external and internal port are 5433
     volumes:
       # Persists all database data on the host machine. If you stop/remove the container,
       # your data will be safe and will be re-loaded on the next start.
@@ -86,9 +86,11 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+      PGPORT: 5433 # Set PostgreSQL to listen on port 5433 internally
     # --- healthcheck block ---
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      test:
+        ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB -p 5433"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -377,6 +379,61 @@ services:
     depends_on:
       - api
     restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  #  VECTORBT ANALYTICS TIER - Technical Indicators & Analytics
+  # --------------------------------------------------------------------------
+
+  # Bulk Historical Processing - One-shot operation to process all historical data
+  vectorbt-bulk:
+    build:
+      context: ./services/vectorbt
+      dockerfile: Dockerfile
+    container_name: vectorbt-bulk
+    networks:
+      - quant_network
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      SERVICE_MODE: "bulk" # Bulk historical processing mode
+      LOG_LEVEL: "INFO"
+      # Override defaults only if needed via .env file
+      # BATCH_SIZE: ${BATCH_SIZE:-1000}
+      # MAX_WORKERS: ${MAX_WORKERS:-4}
+      # RSI_PERIODS: ${RSI_PERIODS:-"14,21,30"}
+      # EMA_PERIODS: ${EMA_PERIODS:-"9,21,50,100,200"}
+      # etc... (all other indicator settings use config.py defaults)
+    restart: "no" # One-shot operation - don't restart
+    profiles:
+      - bulk-indicators
+
+  # Real-time Indicators Processing - Continuous service for incremental updates
+  vectorbt:
+    build:
+      context: ./services/vectorbt
+      dockerfile: Dockerfile
+    container_name: vectorbt
+    networks:
+      - quant_network
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      SERVICE_MODE: "indicators" # Real-time processing mode
+      LOG_LEVEL: "INFO"
+      POLLING_INTERVAL: "30" # Check for new data every 30 seconds
+      # Override defaults only if needed via .env file
+      # BATCH_SIZE: ${BATCH_SIZE:-1000}
+      # MAX_WORKERS: ${MAX_WORKERS:-4}
+      # RSI_PERIODS: ${RSI_PERIODS:-"14,21,30"}
+      # EMA_PERIODS: ${EMA_PERIODS:-"9,21,50,100,200"}
+      # etc... (all other indicator settings use config.py defaults)
+    restart: unless-stopped
+    profiles:
+      - realtime
 
 # Named volumes provide persistent storage for our stateful services.
 volumes:

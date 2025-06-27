@@ -337,3 +337,5 @@ async def get_candlestick_data(
     except Exception as e:
         logging.error(f"Error fetching candlestick data for {symbol} ({timeframe}): {e}")
         raise HTTPException(status_code=500, detail="An error occurred while fetching candlestick data.")
+
+
