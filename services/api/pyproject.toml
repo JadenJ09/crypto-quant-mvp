@@ -19,7 +19,7 @@ dependencies = [
     "psycopg[binary,pool]==3.1.19",
 
     # Pydantic is used by FastAPI for data validation and settings management.
-    "pydantic==2.7.4",          # Used to define environment-specific settings (e.g., database URL).
+    "pydantic==2.7.4",
     "pydantic-settings==2.3.4",
 
     # For a professional setup, we add CORS middleware to allow our future

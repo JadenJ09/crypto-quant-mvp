@@ -89,12 +89,19 @@ class TechnicalIndicatorsProcessor:
             # Resample 1m data to target timeframe
             df_resampled = self._resample_ohlcv(df_1m, config['resample_freq'])
             
-            if len(df_resampled) < config['min_periods']:
-                logger.warning(f"Insufficient data for {symbol} {timeframe}: {len(df_resampled)} < {config['min_periods']}")
+            if len(df_resampled) == 0:
+                logger.warning(f"No data to resample for {symbol} {timeframe}")
                 return
-                
-            # Calculate technical indicators
-            df_with_indicators = self._calculate_indicators(df_resampled, timeframe)
+            
+            # Always calculate basic OHLCV aggregation, but indicators only if enough data
+            if len(df_resampled) >= config['min_periods']:
+                # Calculate technical indicators
+                df_with_indicators = self._calculate_indicators(df_resampled, timeframe)
+            else:
+                logger.warning(f"Insufficient data for {symbol} {timeframe} indicators: {len(df_resampled)} < {config['min_periods']}")
+                logger.info(f"Creating basic OHLCV data for {symbol} {timeframe}: {len(df_resampled)} records")
+                # Use resampled data without indicators (indicators will be NULL)
+                df_with_indicators = df_resampled.copy()
             
             # Prepare data for database
             records = self._prepare_records_for_db(df_with_indicators, symbol)
@@ -510,13 +517,13 @@ class TechnicalIndicatorsProcessor:
         elif timeframe == '15min':
             return timestamp.floor('15min')
         elif timeframe == '1hour':
-            return timestamp.floor('H')
+            return timestamp.floor('h')
         elif timeframe == '4hour':
-            return timestamp.floor('4H')
+            return timestamp.floor('4h')
         elif timeframe == '1day':
-            return timestamp.floor('D')
+            return timestamp.floor('d')
         elif timeframe == '7day':
-            return timestamp.floor('W')
+            return timestamp.floor('w')
         else:
             return timestamp
             
@@ -524,12 +531,12 @@ class TechnicalIndicatorsProcessor:
         """Get lookback hours needed for indicator calculation"""
         
         lookback_map = {
-            '5min': 48,      # 2 days
-            '15min': 120,    # 5 days 
-            '1hour': 720,    # 30 days
-            '4hour': 2160,   # 90 days
-            '1day': 8760,    # 365 days
-            '7day': 17520    # 2 years
+            '5min': 24,      # 1 days
+            '15min': 72,    # 3 days
+            '1hour': 168,    # 7 days
+            '4hour': 720,   # 30 days
+            '1day': 1440,    # 60 days
+            '7day': 1680    # 180 days
         }
         
         return lookback_map.get(timeframe, 48)

@@ -10,7 +10,7 @@ class SparkDataLoader:
             .config("spark.jars", "/opt/spark/jars/postgresql-42.7.0.jar") \
             .getOrCreate()
             
-        self.db_url = "jdbc:postgresql://timescaledb:5432/quant_db"
+        self.db_url = "jdbc:postgresql://timescaledb:5433/quant_db"
         self.db_properties = {
             "user": "quant_user",
             "password": "quant_password",
@@ -78,10 +78,10 @@ class SparkDataLoader:
 if __name__ == "__main__":
     loader = SparkDataLoader()
     
-    # Load BTCUSDT data
-    df = loader.load_ohlcv_data('BTCUSDT', hours=24)
-    df.show(5)
+    # # Load BTCUSDT data
+    # df = loader.load_ohlcv_data('BTCUSDT', hours=24)
+    # df.show(5)
     
-    # Add technical features
-    enhanced_df = loader.add_spark_features(df)
-    enhanced_df.select("time", "symbol", "close", "sma_20", "price_change").show(5)
+    # # Add technical features
+    # enhanced_df = loader.add_spark_features(df)
+    # enhanced_df.select("time", "symbol", "close", "sma_20", "price_change").show(5)

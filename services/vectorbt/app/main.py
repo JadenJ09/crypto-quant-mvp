@@ -71,6 +71,12 @@ class VectorBTService:
                 await self._run_bulk_processing()
             elif self.settings.service_mode == "indicators":
                 await self._run_realtime_processing()
+            elif self.settings.service_mode == "orchestrator":
+                # Run orchestrator mode - delegate to pipeline_orchestrator
+                logger.info("🎯 Running in orchestrator mode - delegating to pipeline_orchestrator")
+                from app.pipeline_orchestrator import main as orchestrator_main
+                await orchestrator_main()
+                return
             else:
                 raise ValueError(f"Unknown service mode: {self.settings.service_mode}")
                 

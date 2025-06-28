@@ -4,6 +4,10 @@ import {
   IChartApi, 
   CandlestickData, 
   CandlestickSeries,
+  HistogramSeries,
+  HistogramData,
+  LineSeries,
+  LineData,
   Time, 
   ISeriesApi
 } from 'lightweight-charts'
@@ -18,6 +22,9 @@ interface CandlestickApiData {
   low: number
   close: number
   volume: number
+  sma_20?: number
+  sma_50?: number
+  sma_100?: number
 }
 
 interface TimeframeInfo {
@@ -40,7 +47,14 @@ function App() {
   const chartContainerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
+  const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null)
+  const sma20SeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const sma50SeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const sma100SeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const livePriceSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
   const refreshIntervalRef = useRef<number | null>(null)
+  const realtimeIntervalRef = useRef<number | null>(null)
+  const legendRef = useRef<HTMLDivElement | null>(null)
   
   const [symbols, setSymbols] = useState<SymbolInfo[]>([])
   const [timeframes, setTimeframes] = useState<TimeframeInfo[]>([])
@@ -73,13 +87,13 @@ function App() {
     const interval = getRefreshInterval(timeframe)
     const minutes = interval / 1000 / 60
     if (minutes < 60) {
-      return `${minutes}M`
+      return `${minutes}m`
     } else if (minutes < 1440) {
       const hours = minutes / 60
-      return `${hours}H`
+      return `${hours}h`
     } else {
       const days = minutes / 1440
-      return `${days}D`
+      return `${days}d`
     }
   }
 
@@ -123,27 +137,17 @@ function App() {
     return `${year}-${month}-${day} ${hours}:${minutes}:${seconds} UTC`
   }
 
-  // Function to focus chart on latest 200 candles with some space at the end
-  const focusOnLatestCandles = (chartData: CandlestickData[]) => {
-    if (!chartRef.current || chartData.length === 0) return
-
-    const dataLength = chartData.length
-    const startIndex = Math.max(0, dataLength - 200)
-    const endIndex = dataLength - 1
-    
-    if (startIndex < endIndex) {
-      const startTime = chartData[startIndex].time
-      const endTime = chartData[endIndex].time
-      
-      // Add some space (about 10% of the visible range) after the last candle
-      const timeRange = (endTime as number) - (startTime as number)
-      const extraSpace = timeRange * 0.1
-      const adjustedEndTime = (endTime as number) + extraSpace
-      
-      chartRef.current.timeScale().setVisibleRange({
-        from: startTime,
-        to: adjustedEndTime as Time
-      })
+  // Get real-time update interval based on timeframe
+  const getRealtimeInterval = (timeframe: string): number => {
+    switch (timeframe) {
+      case '1m': return 5000 // Update every 5 seconds for 1-minute charts
+      case '5m': return 15000 // Update every 15 seconds for 5-minute charts
+      case '15m': return 30000 // Update every 30 seconds for 15-minute charts
+      case '1h': return 60000 // Update every minute for hourly charts
+      case '4h': return 240000 // Update every 4 minutes for 4-hour charts
+      case '1d': return 900000 // Update every 15 minutes for daily charts
+      case '7d': return 3600000 // Update every hour for weekly charts
+      default: return 30000 // Default 30 seconds
     }
   }
 
@@ -184,6 +188,8 @@ function App() {
   useEffect(() => {
     if (!chartContainerRef.current) return
 
+    const container = chartContainerRef.current
+
     // Get computed CSS custom properties for theme colors
     const root = document.documentElement
     const computedStyle = getComputedStyle(root)
@@ -204,8 +210,8 @@ function App() {
     const downColor = getCSSVariable('--chart-down')
 
     // Create chart
-    const chart = createChart(chartContainerRef.current, {
-      width: chartContainerRef.current.clientWidth,
+    const chart = createChart(container, {
+      width: container.clientWidth,
       height: 500,
       layout: {
         background: { color: backgroundColor },
@@ -219,11 +225,57 @@ function App() {
         timeVisible: true,
         secondsVisible: false,
         borderColor: borderColor,
+        rightOffset: 20, // Add space for labels after the latest candle
       },
       rightPriceScale: {
         borderColor: borderColor,
+        scaleMargins: {
+          top: 0.15, // leave more space for the legend
+          bottom: 0.4,
+        },
       },
     })
+
+    // Create SMA line series only for timeframes that support SMA (not 1m)
+    const shouldShowSMA = selectedTimeframe !== '1m'
+    
+    let sma20Series: ISeriesApi<'Line'> | null = null
+    let sma50Series: ISeriesApi<'Line'> | null = null
+    let sma100Series: ISeriesApi<'Line'> | null = null
+    let livePriceSeries: ISeriesApi<'Line'> | null = null
+    
+    if (shouldShowSMA) {
+      sma20Series = chart.addSeries(LineSeries, {
+        color: 'rgba(255, 215, 0, 0.6)', // Yellowish gold with transparency
+        lineWidth: 2,
+        title: 'SMA 20',
+      })
+
+      sma50Series = chart.addSeries(LineSeries, {
+        color: 'rgba(0, 206, 209, 0.6)', // Cyanish dark turquoise with transparency
+        lineWidth: 2,
+        title: 'SMA 50',
+      })
+
+      sma100Series = chart.addSeries(LineSeries, {
+        color: 'rgba(255, 20, 147, 0.6)', // Magentaish deep pink with transparency
+        lineWidth: 2,
+        title: 'SMA 100',
+      })
+    }
+
+    // Create live price line for higher timeframes (not 1m) to show real-time 1m price updates
+    const shouldShowLivePrice = selectedTimeframe !== '1m'
+    if (shouldShowLivePrice) {
+      livePriceSeries = chart.addSeries(LineSeries, {
+        color: 'rgba(255, 255, 0, 0.8)', // Bright yellow for live price
+        lineWidth: 1,
+        lineStyle: 2, // Dotted line style
+        title: 'Live Price',
+        lastValueVisible: true,
+        priceLineVisible: true,
+      })
+    }
 
     // Create candlestick series using the proper API method
     const candlestickSeries = chart.addSeries(CandlestickSeries, {
@@ -235,14 +287,161 @@ function App() {
       wickUpColor: upColor,
     })
 
+    // Position the main price series in the top 60% of the chart
+    candlestickSeries.priceScale().applyOptions({
+      scaleMargins: {
+        top: 0.15, // highest point of the series will be 15% away from the top (leaving space for legend)
+        bottom: 0.4, // lowest point will be 40% away from the bottom
+      },
+    })
+
+    // Create volume histogram series as an overlay
+    const volumeSeries = chart.addSeries(HistogramSeries, {
+      color: 'rgba(38, 166, 154, 0.6)', // Default color for volume bars with less transparency
+      priceFormat: {
+        type: 'volume',
+      },
+      priceScaleId: '', // set as an overlay by setting a blank priceScaleId
+    })
+
+    // Position the volume series in the bottom 30% of the chart
+    volumeSeries.priceScale().applyOptions({
+      scaleMargins: {
+        top: 0.7, // highest point of the series will be 70% away from the top
+        bottom: 0,
+      },
+    })
+
     chartRef.current = chart
     seriesRef.current = candlestickSeries
+    volumeSeriesRef.current = volumeSeries
+    sma20SeriesRef.current = sma20Series
+    sma50SeriesRef.current = sma50Series
+    sma100SeriesRef.current = sma100Series
+    livePriceSeriesRef.current = livePriceSeries
+
+    // Create legend
+    const legend = document.createElement('div')
+    
+    // Set initial legend styles based on current theme
+    const setLegendTheme = () => {
+      const isDark = theme === 'dark'
+      // Get the exact card background color from CSS variables
+      const cardColor = computedStyle.getPropertyValue('--card').trim()
+      const legendBg = isDark 
+        ? `hsla(${cardColor}, 0.75)` // More transparent for dark mode
+        : 'rgba(255, 255, 255, 0.75)' // More transparent for light mode
+      const legendTextColor = isDark ? 'white' : 'black'
+      const legendBorder = isDark 
+        ? 'rgba(255, 255, 255, 0.08)' 
+        : 'rgba(0, 0, 0, 0.08)'
+      
+      legend.style.cssText = `
+        position: absolute; 
+        left: 12px; 
+        top: 12px; 
+        z-index: 100; 
+        font-size: 11px; 
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+        font-weight: 500;
+        background: ${legendBg};
+        color: ${legendTextColor};
+        padding: 6px 10px;
+        border-radius: 6px;
+        pointer-events: none;
+        white-space: nowrap;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        border: 1px solid ${legendBorder};
+        backdrop-filter: blur(4px);
+      `
+    }
+    
+    setLegendTheme()
+    
+    // Ensure container is positioned for absolute positioning
+    container.style.position = 'relative'
+    container.appendChild(legend)
+    legendRef.current = legend
+
+    // Initialize legend without symbol name (conditional SMA display)
+    const legendContent = shouldShowSMA 
+      ? `Price: <span style="color: #ffd700;">--</span> | Vol: <span style="color: rgba(38, 166, 154, 0.8);">--</span> | SMA20: <span style="color: rgba(255, 215, 0, 0.8);">--</span> | SMA50: <span style="color: rgba(0, 206, 209, 0.8);">--</span> | SMA100: <span style="color: rgba(255, 20, 147, 0.8);">--</span>`
+      : `Price: <span style="color: #ffd700;">--</span> | Vol: <span style="color: rgba(38, 166, 154, 0.8);">--</span>`
+    legend.innerHTML = legendContent
+
+    // Subscribe to crosshair move events to update legend
+    chart.subscribeCrosshairMove(param => {
+      let priceFormatted = '--'
+      let volumeFormatted = '--'
+      let sma20Formatted = '--'
+      let sma50Formatted = '--'
+      let sma100Formatted = '--'
+
+      if (param.time) {
+        // Get price data
+        const priceData = param.seriesData.get(candlestickSeries)
+        if (priceData) {
+          const candleData = priceData as CandlestickData
+          if (candleData.close !== undefined) {
+            priceFormatted = `$${candleData.close.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+          }
+        }
+
+        // Get volume data
+        const volumeData = param.seriesData.get(volumeSeries)
+        if (volumeData) {
+          const histogramData = volumeData as HistogramData
+          if (histogramData.value !== undefined) {
+            volumeFormatted = histogramData.value.toLocaleString(undefined, { maximumFractionDigits: 0 })
+          }
+        }
+
+        // ...existing code for SMA data...
+
+        // Get SMA data only if SMA series exist
+        if (shouldShowSMA && sma20Series) {
+          const sma20Data = param.seriesData.get(sma20Series)
+          if (sma20Data) {
+            const lineData = sma20Data as LineData
+            if (lineData.value !== undefined) {
+              sma20Formatted = `$${lineData.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            }
+          }
+        }
+
+        if (shouldShowSMA && sma50Series) {
+          const sma50Data = param.seriesData.get(sma50Series)
+          if (sma50Data) {
+            const lineData = sma50Data as LineData
+            if (lineData.value !== undefined) {
+              sma50Formatted = `$${lineData.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            }
+          }
+        }
+
+        if (shouldShowSMA && sma100Series) {
+          const sma100Data = param.seriesData.get(sma100Series)
+          if (sma100Data) {
+            const lineData = sma100Data as LineData
+            if (lineData.value !== undefined) {
+              sma100Formatted = `$${lineData.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            }
+          }
+        }
+      }
+
+      // Update legend content (conditional SMA display)
+      const legendContent = shouldShowSMA 
+        ? `Price: <span style="color: #ffd700;">${priceFormatted}</span> | Vol: <span style="color: rgba(38, 166, 154, 0.8);">${volumeFormatted}</span> | SMA20: <span style="color: rgba(255, 215, 0, 0.8);">${sma20Formatted}</span> | SMA50: <span style="color: rgba(0, 206, 209, 0.8);">${sma50Formatted}</span> | SMA100: <span style="color: rgba(255, 20, 147, 0.8);">${sma100Formatted}</span>`
+        : `Price: <span style="color: #ffd700;">${priceFormatted}</span> | Vol: <span style="color: rgba(38, 166, 154, 0.8);">${volumeFormatted}</span>`
+      legend.innerHTML = legendContent
+    })
 
     // Handle resize
     const handleResize = () => {
-      if (chartContainerRef.current && chart) {
+      if (container && chart) {
         chart.applyOptions({
-          width: chartContainerRef.current.clientWidth,
+          width: container.clientWidth,
         })
       }
     }
@@ -251,13 +450,17 @@ function App() {
 
     return () => {
       window.removeEventListener('resize', handleResize)
+      if (legendRef.current && container.contains(legendRef.current)) {
+        container.removeChild(legendRef.current)
+        legendRef.current = null
+      }
       chart.remove()
     }
-  }, [])
+  }, [selectedSymbol, symbols, theme, selectedTimeframe])
 
   // Update chart on theme change
   useEffect(() => {
-    if (!chartRef.current || !seriesRef.current) return
+    if (!chartRef.current || !seriesRef.current || !volumeSeriesRef.current) return
 
     const timer = setTimeout(() => {
       console.log('Updating chart theme to:', theme)
@@ -301,6 +504,31 @@ function App() {
         wickDownColor: downColor,
         wickUpColor: upColor,
       })
+
+      // Update volume series color based on theme with transparency
+      const volumeColor = theme === 'dark' ? 'rgba(38, 166, 154, 0.6)' : 'rgba(33, 150, 243, 0.6)'
+      volumeSeriesRef.current?.applyOptions({
+        color: volumeColor,
+      })
+
+      // Update legend background based on theme
+      if (legendRef.current) {
+        const computedStyle = getComputedStyle(document.documentElement)
+        const cardColor = computedStyle.getPropertyValue('--card').trim()
+        const legendBg = theme === 'dark' 
+          ? `hsla(${cardColor}, 0.75)` 
+          : 'rgba(255, 255, 255, 0.75)'
+        const legendTextColor = theme === 'dark' ? 'white' : 'black'
+        const legendBorder = theme === 'dark' 
+          ? 'rgba(255, 255, 255, 0.08)' 
+          : 'rgba(0, 0, 0, 0.08)'
+        
+        legendRef.current.style.background = legendBg
+        legendRef.current.style.color = legendTextColor
+        legendRef.current.style.borderColor = legendBorder
+        legendRef.current.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.1)'
+        legendRef.current.style.backdropFilter = 'blur(4px)'
+      }
     }, 100)
 
     return () => clearTimeout(timer)
@@ -308,8 +536,218 @@ function App() {
 
   // Fetch chart data when symbol, timeframe changes, or chart is recreated
   useEffect(() => {
+    // Manual refresh function (moved inside useEffect to avoid dependency issues)
+    const manualRefresh = async () => {
+      if (!seriesRef.current || !volumeSeriesRef.current) return
+
+      setLoading(true)
+      setError(null)
+
+      try {
+        console.log(`Manual refresh for ${selectedSymbol} with timeframe ${selectedTimeframe}`)
+        const response = await fetch(
+          `http://localhost:8000/candlesticks/${selectedSymbol}?timeframe=${selectedTimeframe}`
+        )
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`)
+        }
+
+        const data: CandlestickApiData[] = await response.json()
+        console.log(`Received ${data.length} data points`)
+        
+        // Convert data to lightweight-charts format (keep as UTC)
+        const chartData: CandlestickData[] = data.map(item => ({
+          time: (new Date(item.time).getTime() / 1000) as Time,
+          open: item.open,
+          high: item.high,
+          low: item.low,
+          close: item.close,
+        }))
+
+        // Prepare volume data with colors based on price movement
+        const volumeData: HistogramData[] = data.map((item, index) => {
+          const isUp = index === 0 ? true : item.close >= item.open
+          return {
+            time: (new Date(item.time).getTime() / 1000) as Time,
+            value: item.volume,
+            color: isUp ? 'rgba(38, 166, 154, 0.7)' : 'rgba(239, 83, 80, 0.7)', // Green for up, red for down with less transparency
+          }
+        })
+
+        // Prepare SMA data only if SMA series exist
+        const sma20Data: LineData[] = sma20SeriesRef.current ? data
+          .filter(item => item.sma_20 !== null && item.sma_20 !== undefined)
+          .map(item => ({
+            time: (new Date(item.time).getTime() / 1000) as Time,
+            value: item.sma_20!,
+          })) : []
+
+        const sma50Data: LineData[] = sma50SeriesRef.current ? data
+          .filter(item => item.sma_50 !== null && item.sma_50 !== undefined)
+          .map(item => ({
+            time: (new Date(item.time).getTime() / 1000) as Time,
+            value: item.sma_50!,
+          })) : []
+
+        const sma100Data: LineData[] = sma100SeriesRef.current ? data
+          .filter(item => item.sma_100 !== null && item.sma_100 !== undefined)
+          .map(item => ({
+            time: (new Date(item.time).getTime() / 1000) as Time,
+            value: item.sma_100!,
+          })) : []
+
+        // Sort by time to ensure proper order
+        chartData.sort((a, b) => (a.time as number) - (b.time as number))
+        volumeData.sort((a, b) => (a.time as number) - (b.time as number))
+        sma20Data.sort((a, b) => (a.time as number) - (b.time as number))
+        sma50Data.sort((a, b) => (a.time as number) - (b.time as number))
+        sma100Data.sort((a, b) => (a.time as number) - (b.time as number))
+
+        // Set data using the proper API method
+        seriesRef.current.setData(chartData)
+        volumeSeriesRef.current.setData(volumeData)
+        if (sma20SeriesRef.current) sma20SeriesRef.current.setData(sma20Data)
+        if (sma50SeriesRef.current) sma50SeriesRef.current.setData(sma50Data)
+        if (sma100SeriesRef.current) sma100SeriesRef.current.setData(sma100Data)
+        
+        console.log(`Manual refresh complete. Chart data points: ${chartData.length}`)
+        
+        // Initialize live price data for higher timeframes
+        if (selectedTimeframe !== '1m') {
+          setTimeout(() => {
+            fetchLivePriceUpdate()
+          }, 200)
+        }
+        
+        // Simply go to realtime - no back and forth movement
+        setTimeout(() => {
+          console.log('Auto-scrolling to realtime after manual refresh')
+          scrollToRealtime()
+        }, 100)
+        
+      } catch (error) {
+        console.error('Error fetching chart data:', error)
+        setError(`Failed to load chart data for ${selectedSymbol} (${selectedTimeframe}). Please try again.`)
+      } finally {
+        setLoading(false)
+      }
+    }
+    // Real-time update function (defined inside useEffect to avoid dependency issues)
+    const fetchRealtimeUpdate = async () => {
+      if (!seriesRef.current || !volumeSeriesRef.current) return
+
+      try {
+        // Only do real-time updates for 1m timeframe to avoid price jumping issues
+        if (selectedTimeframe !== '1m') {
+          console.log('Skipping real-time update for higher timeframe:', selectedTimeframe)
+          return
+        }
+        
+        // Fetch the latest 1m candle for real-time updates
+        const response = await fetch(
+          `http://localhost:8000/candlesticks/${selectedSymbol}?timeframe=1m&limit=1`
+        )
+
+        if (!response.ok) return
+
+        const data: CandlestickApiData[] = await response.json()
+        if (data.length === 0) return
+
+        const latestData = data[0]
+        
+        // Update with latest 1m data
+        const chartData: CandlestickData = {
+          time: (new Date(latestData.time).getTime() / 1000) as Time,
+          open: latestData.open,
+          high: latestData.high,
+          low: latestData.low,
+          close: latestData.close,
+        }
+
+        const volumeData: HistogramData = {
+          time: (new Date(latestData.time).getTime() / 1000) as Time,
+          value: latestData.volume,
+          color: latestData.close >= latestData.open ? 'rgba(38, 166, 154, 0.7)' : 'rgba(239, 83, 80, 0.7)',
+        }
+
+        seriesRef.current.update(chartData)
+        volumeSeriesRef.current.update(volumeData)
+
+        // Update SMA data only if series exist and data is available
+        if (sma20SeriesRef.current && latestData.sma_20 !== null && latestData.sma_20 !== undefined) {
+          const sma20Data: LineData = {
+            time: (new Date(latestData.time).getTime() / 1000) as Time,
+            value: latestData.sma_20,
+          }
+          sma20SeriesRef.current.update(sma20Data)
+        }
+
+        if (sma50SeriesRef.current && latestData.sma_50 !== null && latestData.sma_50 !== undefined) {
+          const sma50Data: LineData = {
+            time: (new Date(latestData.time).getTime() / 1000) as Time,
+            value: latestData.sma_50,
+          }
+          sma50SeriesRef.current.update(sma50Data)
+        }
+
+        if (sma100SeriesRef.current && latestData.sma_100 !== null && latestData.sma_100 !== undefined) {
+          const sma100Data: LineData = {
+            time: (new Date(latestData.time).getTime() / 1000) as Time,
+            value: latestData.sma_100,
+          }
+          sma100SeriesRef.current.update(sma100Data)
+        }
+
+      } catch (error) {
+        console.error('Error fetching real-time update:', error)
+      }
+    }
+
+    // Live price update function for higher timeframes using 1m data
+    const fetchLivePriceUpdate = async () => {
+      if (!livePriceSeriesRef.current || selectedTimeframe === '1m') return
+
+      try {
+        // Fetch latest 5 1m candles and get the most recent one
+        const response = await fetch(
+          `http://localhost:8000/candlesticks/${selectedSymbol}?timeframe=1m&limit=1`
+        )
+
+        if (!response.ok) return
+
+        const data: CandlestickApiData[] = await response.json()
+        if (data.length === 0) return
+
+        // Get the latest (most recent) candle - should be the last in the array
+        const latestCandle = data[data.length - 1]
+        const latestPrice = latestCandle.close
+
+        // Get the current chart's visible time range
+        if (!chartRef.current) return
+        const timeScale = chartRef.current.timeScale()
+        const visibleRange = timeScale.getVisibleRange()
+        
+        if (!visibleRange) return
+
+        // Create a horizontal line across the visible time range using the latest 1m close price
+        const livePriceData: LineData[] = [
+          { time: visibleRange.from as Time, value: latestPrice },
+          { time: visibleRange.to as Time, value: latestPrice }
+        ]
+
+        // Set the live price data as a horizontal line
+        livePriceSeriesRef.current.setData(livePriceData)
+
+        console.log(`Live price updated: ${latestPrice} from ${latestCandle.time}`)
+
+      } catch (error) {
+        console.error('Error fetching live price update:', error)
+      }
+    }
+
     const fetchChartData = async () => {
-      if (!seriesRef.current) return
+      if (!seriesRef.current || !volumeSeriesRef.current) return
 
       setLoading(true)
       setError(null)
@@ -336,15 +774,58 @@ function App() {
           close: item.close,
         }))
 
+        // Prepare volume data with colors based on price movement
+        const volumeData: HistogramData[] = data.map((item, index) => {
+          const isUp = index === 0 ? true : item.close >= item.open
+          return {
+            time: (new Date(item.time).getTime() / 1000) as Time,
+            value: item.volume,
+            color: isUp ? 'rgba(38, 166, 154, 0.7)' : 'rgba(239, 83, 80, 0.7)', // Green for up, red for down with less transparency
+          }
+        })
+
+        // Prepare SMA data only if SMA series exist
+        const sma20Data: LineData[] = sma20SeriesRef.current ? data
+          .filter(item => item.sma_20 !== null && item.sma_20 !== undefined)
+          .map(item => ({
+            time: (new Date(item.time).getTime() / 1000) as Time,
+            value: item.sma_20!,
+          })) : []
+
+        const sma50Data: LineData[] = sma50SeriesRef.current ? data
+          .filter(item => item.sma_50 !== null && item.sma_50 !== undefined)
+          .map(item => ({
+            time: (new Date(item.time).getTime() / 1000) as Time,
+            value: item.sma_50!,
+          })) : []
+
+        const sma100Data: LineData[] = sma100SeriesRef.current ? data
+          .filter(item => item.sma_100 !== null && item.sma_100 !== undefined)
+          .map(item => ({
+            time: (new Date(item.time).getTime() / 1000) as Time,
+            value: item.sma_100!,
+          })) : []
+
         // Sort by time to ensure proper order (data should already be sorted from API)
         chartData.sort((a, b) => (a.time as number) - (b.time as number))
+        volumeData.sort((a, b) => (a.time as number) - (b.time as number))
+        sma20Data.sort((a, b) => (a.time as number) - (b.time as number))
+        sma50Data.sort((a, b) => (a.time as number) - (b.time as number))
+        sma100Data.sort((a, b) => (a.time as number) - (b.time as number))
 
         // Set data using the proper API method
         seriesRef.current.setData(chartData)
+        volumeSeriesRef.current.setData(volumeData)
+        if (sma20SeriesRef.current) sma20SeriesRef.current.setData(sma20Data)
+        if (sma50SeriesRef.current) sma50SeriesRef.current.setData(sma50Data)
+        if (sma100SeriesRef.current) sma100SeriesRef.current.setData(sma100Data)
         
-        // Focus on latest 200 candles with some space at the end
+        console.log(`Data set successfully. Chart data points: ${chartData.length}`)
+        
+        // Automatically trigger refresh button after initial load to ensure proper display
         setTimeout(() => {
-          focusOnLatestCandles(chartData)
+          console.log('Auto-triggering manual refresh for proper chart display')
+          manualRefresh()
         }, 100)
         
       } catch (error) {
@@ -357,7 +838,31 @@ function App() {
           { time: '2023-12-02' as Time, open: 42200, high: 43000, low: 42000, close: 42800 },
           { time: '2023-12-03' as Time, open: 42800, high: 43200, low: 42600, close: 43000 },
         ]
+        const sampleVolumeData: HistogramData[] = [
+          { time: '2023-12-01' as Time, value: 19103293.0, color: '#26a69a' },
+          { time: '2023-12-02' as Time, value: 20345000.0, color: '#26a69a' },
+          { time: '2023-12-03' as Time, value: 18123456.0, color: '#26a69a' },
+        ]
+        const sampleSMA20Data: LineData[] = [
+          { time: '2023-12-01' as Time, value: 42100 },
+          { time: '2023-12-02' as Time, value: 42400 },
+          { time: '2023-12-03' as Time, value: 42700 },
+        ]
+        const sampleSMA50Data: LineData[] = [
+          { time: '2023-12-01' as Time, value: 41900 },
+          { time: '2023-12-02' as Time, value: 42200 },
+          { time: '2023-12-03' as Time, value: 42500 },
+        ]
+        const sampleSMA100Data: LineData[] = [
+          { time: '2023-12-01' as Time, value: 41700 },
+          { time: '2023-12-02' as Time, value: 42000 },
+          { time: '2023-12-03' as Time, value: 42300 },
+        ]
         seriesRef.current.setData(sampleData)
+        volumeSeriesRef.current.setData(sampleVolumeData)
+        if (sma20SeriesRef.current) sma20SeriesRef.current.setData(sampleSMA20Data)
+        if (sma50SeriesRef.current) sma50SeriesRef.current.setData(sampleSMA50Data)
+        if (sma100SeriesRef.current) sma100SeriesRef.current.setData(sampleSMA100Data)
       } finally {
         setLoading(false)
       }
@@ -369,15 +874,39 @@ function App() {
       refreshIntervalRef.current = null
     }
 
+    // Clear existing real-time interval
+    if (realtimeIntervalRef.current) {
+      clearInterval(realtimeIntervalRef.current)
+      realtimeIntervalRef.current = null
+    }
+
     // Initial data fetch
     fetchChartData()
 
-    // Set up auto-refresh based on timeframe
+    // Set up auto-refresh based on timeframe (for full data reload)
     const refreshInterval = getRefreshInterval(selectedTimeframe)
     refreshIntervalRef.current = window.setInterval(() => {
       console.log(`Auto-refreshing chart data for ${selectedSymbol} (${selectedTimeframe})`)
       fetchChartData()
     }, refreshInterval)
+
+    // Set up real-time updates (only for 1m timeframes to avoid price jumping)
+    if (selectedTimeframe === '1m') {
+      const realtimeInterval = getRealtimeInterval(selectedTimeframe)
+      realtimeIntervalRef.current = window.setInterval(() => {
+        console.log(`Real-time update for ${selectedSymbol} (${selectedTimeframe})`)
+        fetchRealtimeUpdate()
+      }, realtimeInterval)
+    } else {
+      console.log(`Skipping real-time updates for higher timeframe: ${selectedTimeframe}`)
+      
+      // Set up live price updates for higher timeframes using 1m data
+      const livePriceInterval = 5000 // Update live price every 5 seconds
+      realtimeIntervalRef.current = window.setInterval(() => {
+        console.log(`Live price update for ${selectedSymbol} (${selectedTimeframe})`)
+        fetchLivePriceUpdate()
+      }, livePriceInterval)
+    }
 
     // Cleanup function
     return () => {
@@ -385,8 +914,20 @@ function App() {
         clearInterval(refreshIntervalRef.current)
         refreshIntervalRef.current = null
       }
+      if (realtimeIntervalRef.current) {
+        clearInterval(realtimeIntervalRef.current)
+        realtimeIntervalRef.current = null
+      }
     }
   }, [selectedSymbol, selectedTimeframe])
+
+  // Function to scroll to real-time (latest 200 candles)
+  const scrollToRealtime = () => {
+    if (chartRef.current) {
+      console.log('Scrolling to latest data')
+      chartRef.current.timeScale().scrollToRealTime()
+    }
+  }
 
   const handleSymbolChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const newSymbol = event.target.value
@@ -406,6 +947,10 @@ function App() {
         clearInterval(refreshIntervalRef.current)
         refreshIntervalRef.current = null
       }
+      if (realtimeIntervalRef.current) {
+        clearInterval(realtimeIntervalRef.current)
+        realtimeIntervalRef.current = null
+      }
     }
   }, [])
 
@@ -418,52 +963,18 @@ function App() {
     return () => clearInterval(timeInterval)
   }, [])
 
-  // Manual refresh function
+  // Manual refresh function (calls the internal one)
   const handleManualRefresh = async () => {
-    if (!seriesRef.current) return
-
-    setLoading(true)
-    setError(null)
-
-    try {
-      console.log(`Manual refresh for ${selectedSymbol} with timeframe ${selectedTimeframe}`)
-      const response = await fetch(
-        `http://localhost:8000/candlesticks/${selectedSymbol}?timeframe=${selectedTimeframe}`
-      )
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
-      const data: CandlestickApiData[] = await response.json()
-      console.log(`Received ${data.length} data points`)
-      
-      // Convert data to lightweight-charts format (keep as UTC)
-      const chartData: CandlestickData[] = data.map(item => ({
-        time: (new Date(item.time).getTime() / 1000) as Time,
-        open: item.open,
-        high: item.high,
-        low: item.low,
-        close: item.close,
-      }))
-
-      // Sort by time to ensure proper order
-      chartData.sort((a, b) => (a.time as number) - (b.time as number))
-
-      // Set data using the proper API method
-      seriesRef.current.setData(chartData)
-      
-      // Focus on latest 200 candles with some space at the end
-      setTimeout(() => {
-        focusOnLatestCandles(chartData)
-      }, 100)
-      
-    } catch (error) {
-      console.error('Error fetching chart data:', error)
-      setError(`Failed to load chart data for ${selectedSymbol} (${selectedTimeframe}). Please try again.`)
-    } finally {
-      setLoading(false)
-    }
+    // This will be handled by the auto-trigger mechanism inside useEffect
+    // or users can click the button which triggers a symbol/timeframe change
+    // For manual button clicks, we just trigger a re-render by updating state
+    setCurrentTime(new Date())
+    
+    // Also go to realtime when manually refreshing with minimal delay
+    setTimeout(() => {
+      console.log('Manual refresh: Auto-scrolling to realtime')
+      scrollToRealtime()
+    }, 150)
   }
 
   return (
@@ -560,6 +1071,8 @@ function App() {
               )}
               <div className="text-xs text-muted-foreground">
                 Auto-refresh: {getRefreshIntervalText(selectedTimeframe)}
+                {/* {selectedTimeframe === '1m' && ' | Real-time: ON'}
+                {selectedTimeframe !== '1m' && ' | Real-time: OFF'} */}
               </div>
               <button
                 onClick={handleManualRefresh}
@@ -567,6 +1080,12 @@ function App() {
                 className="px-3 py-1 text-xs bg-secondary text-secondary-foreground hover:bg-accent hover:text-accent-foreground rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 🔄 Refresh
+              </button>
+              <button
+                onClick={scrollToRealtime}
+                className="px-3 py-1 text-xs bg-primary text-primary-foreground hover:bg-primary/90 rounded transition-colors"
+              >
+                📈 Go to Realtime
               </button>
             </div>
           </div>

@@ -59,3 +59,6 @@ backups/
 .env.*
 infra/
 notebooks/
+
+# Temporary pipeline files
+tmp/

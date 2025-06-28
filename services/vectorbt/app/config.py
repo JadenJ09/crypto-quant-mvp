@@ -49,32 +49,32 @@ class Settings(BaseSettings):
         '5min': {
             'table': 'ohlcv_5min',
             'resample_freq': '5min',
-            'min_periods': 200  # Need at least 200 periods for indicators
+            'min_periods': 288  # Need at least 288 periods for indicators
         },
         '15min': {
             'table': 'ohlcv_15min', 
             'resample_freq': '15min',
-            'min_periods': 200
+            'min_periods': 288
         },
         '1hour': {
             'table': 'ohlcv_1hour',
             'resample_freq': '1h',
-            'min_periods': 200
+            'min_periods': 240
         },
         '4hour': {
             'table': 'ohlcv_4hour',
             'resample_freq': '4h', 
-            'min_periods': 200
+            'min_periods': 180
         },
         '1day': {
             'table': 'ohlcv_1day',
             'resample_freq': '1D',
-            'min_periods': 100
+            'min_periods': 50
         },
         '7day': {
             'table': 'ohlcv_7day',
             'resample_freq': '7D',
-            'min_periods': 50
+            'min_periods': 20
         }
     }
     

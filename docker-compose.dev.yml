@@ -247,7 +247,7 @@ services:
       CHECK_INTERVAL_MINUTES: "10"
       HOURS_BACK: ${HOURS_BACK:-72} # Check last 3 days for more comprehensive monitoring
       START_DATE: ${START_DATE:-2025-01-01} # Gap detection start date
-      END_DATE: ${END_DATE:-2025-06-25} # Gap detection end date
+      END_DATE: ${END_DATE:-2025-06-28} # Gap detection end date
       BINANCE_API_KEY: ${BINANCE_API_KEY}
       BINANCE_SECRET_KEY: ${BINANCE_SECRET_KEY}
     restart: unless-stopped
@@ -278,7 +278,7 @@ services:
       RECOVERY_MODE: "oneshot"
       HOURS_BACK: ${HOURS_BACK:-168} # Check last 7 days for one-time recovery
       START_DATE: ${START_DATE:-2025-01-01} # Gap detection start date
-      END_DATE: ${END_DATE:-2025-06-25} # Gap detection end date
+      END_DATE: ${END_DATE:-2025-06-28} # Gap detection end date
       BINANCE_API_KEY: ${BINANCE_API_KEY}
       BINANCE_SECRET_KEY: ${BINANCE_SECRET_KEY}
     restart: "no"
@@ -307,7 +307,7 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
       KAFKA_OUTPUT_TOPIC: "agg.ohlcv.1m"
       START_DATE: ${START_DATE:-2025-01-01} # Gap detection start date
-      END_DATE: ${END_DATE:-2025-06-25} # Gap detection end date
+      END_DATE: ${END_DATE:-2025-06-28} # Gap detection end date
       MAX_WORKERS: ${MAX_WORKERS:-4} # Parallel symbol processing
       BINANCE_API_KEY: ${BINANCE_API_KEY}
       BINANCE_SECRET_KEY: ${BINANCE_SECRET_KEY}
@@ -334,8 +334,8 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       BINANCE_API_KEY: ${BINANCE_API_KEY}
       BINANCE_SECRET_KEY: ${BINANCE_SECRET_KEY}
-      START_DATE: ${START_DATE:-2025-01-01}
-      END_DATE: ${END_DATE:-2025-06-25}
+      START_DATE: ${START_DATE:-2025-06-01}
+      END_DATE: ${END_DATE:-2025-06-28}
       MAX_WORKERS: ${MAX_WORKERS:-4}
     restart: "no"
     profiles:

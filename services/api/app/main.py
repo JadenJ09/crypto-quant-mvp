@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 # --- Configuration & Logging ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://quant_user:quant_password@timescaledb:5432/quant_db")
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://quant_user:quant_password@timescaledb:5433/quant_db")
 
 # --- Database Connection Pool ---
 # In an async application, managing a pool of connections is more efficient
@@ -70,6 +70,9 @@ class CandlestickData(BaseModel):
     low: float
     close: float
     volume: float
+    sma_20: Optional[float] = None
+    sma_50: Optional[float] = None
+    sma_100: Optional[float] = None
 
 class TimeframeInfo(BaseModel):
     label: str
@@ -260,13 +263,11 @@ async def get_ohlcv_data(
 @app.get("/candlesticks/{symbol}", response_model=List[CandlestickData])
 async def get_candlestick_data(
     symbol: str,
-    timeframe: str = Query("1h", description="Timeframe (1m, 5m, 15m, 1h, 4h, 1d, 7d)"),
-    start_time: Optional[datetime] = Query(None, description="Start time for data range"),
-    end_time: Optional[datetime] = Query(None, description="End time for data range")
+    timeframe: str = Query("1h", description="Timeframe (1m, 5m, 15m, 1h, 4h, 1d, 7d)")
 ):
     """
-    Fetches candlestick data optimized for TradingView charts.
-    Returns data in ascending time order (oldest first) for proper chart rendering.
+    Fetches all candlestick data for a given symbol and timeframe.
+    Simple and fast - just gets all data from the database.
     """
     if not db_pool:
         raise HTTPException(status_code=503, detail="Database connection is not available.")
@@ -280,42 +281,28 @@ async def get_candlestick_data(
     
     table_name = TIMEFRAME_TABLES[timeframe]
     
-    # Build query based on time range (order by time ASC for candlestick charts)
-    if start_time and end_time:
+    # Determine if this timeframe has SMA columns (1m doesn't have SMA)
+    has_sma = timeframe != "1m"
+    
+    # Simple query to get all data for the symbol
+    if has_sma:
         query = f"""
-            SELECT time, open, high, low, close, volume
+            SELECT time, open, high, low, close, volume, sma_20, sma_50, sma_100
             FROM {table_name}
-            WHERE symbol = %s AND time >= %s AND time <= %s
+            WHERE symbol = %s
             ORDER BY time ASC;
         """
-        params = (symbol.upper(), start_time, end_time)
-    elif start_time:
-        query = f"""
-            SELECT time, open, high, low, close, volume
-            FROM {table_name}
-            WHERE symbol = %s AND time >= %s
-            ORDER BY time ASC;
-        """
-        params = (symbol.upper(), start_time)
-    elif end_time:
-        query = f"""
-            SELECT time, open, high, low, close, volume
-            FROM {table_name}
-            WHERE symbol = %s AND time <= %s
-            ORDER BY time ASC;
-        """
-        params = (symbol.upper(), end_time)
     else:
-        # Get all data for the symbol, ordered by time ASC
         query = f"""
             SELECT time, open, high, low, close, volume
             FROM {table_name}
             WHERE symbol = %s
             ORDER BY time ASC;
         """
-        params = (symbol.upper(),)
     
-    logging.info(f"Fetching candlestick data: all records for {symbol.upper()} ({timeframe})")
+    params = (symbol.upper(),)
+    
+    logging.info(f"Fetching all candlestick data for {symbol.upper()} ({timeframe})")
     try:
         async with db_pool.connection() as aconn:
             async with aconn.cursor() as acur:
@@ -324,18 +311,33 @@ async def get_candlestick_data(
                 
                 candlesticks = []
                 for row in results:
-                    candlesticks.append({
-                        "time": row[0],  # timestamp as time
-                        "open": row[1],
-                        "high": row[2],
-                        "low": row[3],
-                        "close": row[4],
-                        "volume": row[5]
-                    })
+                    if has_sma:
+                        candlesticks.append({
+                            "time": row[0],
+                            "open": row[1],
+                            "high": row[2], 
+                            "low": row[3],
+                            "close": row[4],
+                            "volume": row[5],
+                            "sma_20": row[6],
+                            "sma_50": row[7],
+                            "sma_100": row[8]
+                        })
+                    else:
+                        candlesticks.append({
+                            "time": row[0],
+                            "open": row[1],
+                            "high": row[2],
+                            "low": row[3], 
+                            "close": row[4],
+                            "volume": row[5],
+                            "sma_20": None,
+                            "sma_50": None,
+                            "sma_100": None
+                        })
                 
                 return candlesticks
     except Exception as e:
         logging.error(f"Error fetching candlestick data for {symbol} ({timeframe}): {e}")
         raise HTTPException(status_code=500, detail="An error occurred while fetching candlestick data.")
-
 
