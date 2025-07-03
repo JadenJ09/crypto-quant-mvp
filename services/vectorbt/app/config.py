@@ -12,37 +12,41 @@ class Settings(BaseSettings):
     """Service configuration settings"""
     
     # Database
-    database_url: str = Field(..., env="DATABASE_URL")
+    database_url: str = "postgresql://postgres:password@localhost:5432/crypto_data" 
     
     # Service Configuration
-    service_mode: str = Field("indicators", env="SERVICE_MODE")  # 'indicators' or 'bulk'
-    batch_size: int = Field(1000, env="BATCH_SIZE")
-    max_workers: int = Field(4, env="MAX_WORKERS")
-    polling_interval: int = Field(30, env="POLLING_INTERVAL")  # Seconds between DB polls
-    log_level: str = Field("INFO", env="LOG_LEVEL")
+    service_mode: str = "indicators"  # 'indicators' or 'bulk'
+    batch_size: int = 1000
+    max_workers: int = 4
+    polling_interval: int = 30  # Seconds between DB polls
+    log_level: str = "INFO"
+    
+    # Date Range Configuration (for bulk processing)
+    start_date: str = "2025-06-01"
+    end_date: str = "2025-06-29"
     
     # Technical Indicator Periods
-    rsi_periods: str = Field("14,21,30", env="RSI_PERIODS")
-    ema_periods: str = Field("9,21,50,100,200", env="EMA_PERIODS")
-    sma_periods: str = Field("20,50,100,200", env="SMA_PERIODS")
+    rsi_periods: str = "14,21,30"
+    ema_periods: str = "9,21,50,100,200"
+    sma_periods: str = "20,50,100,200"
     
     # MACD Parameters
-    macd_fast: int = Field(12, env="MACD_FAST")
-    macd_slow: int = Field(26, env="MACD_SLOW")
-    macd_signal: int = Field(9, env="MACD_SIGNAL")
+    macd_fast: int = 12
+    macd_slow: int = 26
+    macd_signal: int = 9
     
     # Bollinger Bands
-    bb_period: int = Field(20, env="BB_PERIOD")
-    bb_std: float = Field(2.0, env="BB_STD")
+    bb_period: int = 20
+    bb_std: float = 2.0
     
     # Other Indicators
-    atr_period: int = Field(14, env="ATR_PERIOD")
-    stoch_k_period: int = Field(14, env="STOCH_K_PERIOD")
-    stoch_d_period: int = Field(3, env="STOCH_D_PERIOD")
-    volume_sma_period: int = Field(20, env="VOLUME_SMA_PERIOD")
-    cmf_period: int = Field(20, env="CMF_PERIOD")
-    mfi_period: int = Field(14, env="MFI_PERIOD")
-    volatility_window: int = Field(252, env="VOLATILITY_WINDOW")
+    atr_period: int = 14
+    stoch_k_period: int = 14
+    stoch_d_period: int = 3
+    volume_sma_period: int = 20
+    cmf_period: int = 20
+    mfi_period: int = 14
+    volatility_window: int = 252
     
     # Timeframe definitions (ClassVar since it's not configurable)
     TIMEFRAMES: ClassVar[Dict[str, Dict[str, Any]]] = {
@@ -73,7 +77,7 @@ class Settings(BaseSettings):
         },
         '7day': {
             'table': 'ohlcv_7day',
-            'resample_freq': '7D',
+            'resample_freq': 'W',
             'min_periods': 20
         }
     }
@@ -93,4 +97,4 @@ class Settings(BaseSettings):
         """Parse SMA periods from string"""
         return [int(p.strip()) for p in self.sma_periods.split(',')]
     
-    model_config = {"env_file": ".env"}
+    model_config = {"env_file": ".env", "env_prefix": "", "case_sensitive": False}

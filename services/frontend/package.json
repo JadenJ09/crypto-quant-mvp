@@ -10,11 +10,16 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@types/react-router-dom": "^5.3.3",
+    "date-fns": "^4.1.0",
     "echarts": "^5.6.0",
     "echarts-for-react": "^3.0.2",
-    "lightweight-charts": "^5.0.7",
+    "lightweight-charts": "^5.0.8",
+    "lucide-react": "^0.525.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.6.3",
+    "recharts": "^3.0.2"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

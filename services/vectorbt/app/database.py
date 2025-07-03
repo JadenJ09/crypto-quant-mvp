@@ -117,15 +117,20 @@ class DatabaseManager:
             {', '.join([f'{col} = EXCLUDED.{col}' for col in columns if col not in ['symbol', 'time']])}
         """
         
-        # Prepare data for bulk insert
-        values = []
-        for record in data:
-            values.append([record[col] for col in columns])
-            
+        # Use individual execute calls instead of executemany to avoid TimescaleDB hypertable issues
         async with self.pool.connection() as conn:
             async with conn.cursor() as cur:
-                await cur.executemany(query, values)
-                return len(values)
+                inserted_count = 0
+                for record in data:
+                    values = [record[col] for col in columns]
+                    try:
+                        await cur.execute(query, values)
+                        inserted_count += 1
+                    except Exception as e:
+                        logger.error(f"Error inserting record into {table_name}: {e}")
+                        # Continue with next record instead of failing completely
+                        continue
+                return inserted_count
                 
     async def get_latest_timeframe_data(
         self,

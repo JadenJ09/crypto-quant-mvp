@@ -1,0 +1,229 @@
+{
+  "summary": {
+    "total_tests": 6,
+    "passed": 6,
+    "failed": 0,
+    "success_rate": 100.0
+  },
+  "results": {
+    "database_connection": {
+      "success": true,
+      "result": {
+        "database_version": "PostgreSQL 17.5 (Ubuntu 17.5-1.pgdg22.04+1) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0, 64-bit",
+        "server_time": "2025-07-03 01:35:25.416019+00:00",
+        "connection_successful": true
+      },
+      "timestamp": "2025-07-03T03:35:25.419933"
+    },
+    "data_availability": {
+      "success": true,
+      "result": {
+        "available_tables": [
+          "ohlcv_15min",
+          "ohlcv_1day",
+          "ohlcv_1hour",
+          "ohlcv_1min",
+          "ohlcv_1min_temp",
+          "ohlcv_4hour",
+          "ohlcv_5min",
+          "ohlcv_7day"
+        ],
+        "tables_count": 8,
+        "available_symbols": [
+          "ADAUSDT",
+          "BTCUSDT",
+          "DOGEUSDT",
+          "ETHUSDT",
+          "SOLUSDT"
+        ],
+        "symbols_count": 5,
+        "total_records": 368977,
+        "earliest_data": "2024-01-01 00:00:00+00:00",
+        "latest_data": "2025-07-03 01:30:00+00:00",
+        "has_data": true
+      },
+      "timestamp": "2025-07-03T03:35:25.538287"
+    },
+    "api_health": {
+      "success": true,
+      "result": {
+        "main_api_healthy": true,
+        "main_health_data": {
+          "status": "healthy",
+          "timestamp": "2025-07-03T01:35:26.543430",
+          "uptime_seconds": 5.65756368637085,
+          "version": "1.0.0",
+          "system_info": {
+            "cpu_percent": 0.2,
+            "memory_percent": 88.2,
+            "memory_available_gb": 0.9003868103027344,
+            "python_version": "3.11.13 (main, Jul  1 2025, 02:42:16) [GCC 12.2.0]",
+            "platform": "linux"
+          },
+          "engine_status": {
+            "core_engine": "\u2705 Active",
+            "risk_management": "\u2705 Active",
+            "statistics_engine": "\u2705 Active",
+            "api_integration": "\u2705 Active",
+            "tests_passing": "40/40",
+            "phases_complete": 3,
+            "total_phases": 4,
+            "vectorbt_replacement": "\u2705 Ready"
+          }
+        },
+        "timescale_api_healthy": true,
+        "timescale_health_data": {
+          "healthy": true,
+          "database_connected": true,
+          "tables_available": true,
+          "data_available": true,
+          "error": null,
+          "details": {
+            "available_tables": [
+              "ohlcv_15min",
+              "ohlcv_1day",
+              "ohlcv_1hour",
+              "ohlcv_1min",
+              "ohlcv_1min_temp",
+              "ohlcv_4hour",
+              "ohlcv_5min",
+              "ohlcv_7day"
+            ],
+            "data_info": {
+              "available_tables": [
+                "ohlcv_15min",
+                "ohlcv_1day",
+                "ohlcv_1hour",
+                "ohlcv_1min",
+                "ohlcv_1min_temp",
+                "ohlcv_4hour",
+                "ohlcv_5min",
+                "ohlcv_7day"
+              ],
+              "total_records": 368977,
+              "symbols_count": 7,
+              "earliest_data": "2024-01-01T00:00:00Z",
+              "latest_data": "2025-07-03T01:30:00Z",
+              "symbol_info": {}
+            }
+          }
+        },
+        "api_accessible": true
+      },
+      "timestamp": "2025-07-03T03:35:26.676152"
+    },
+    "timescale_api_endpoints": {
+      "success": true,
+      "result": {
+        "info": {
+          "success": true,
+          "status_code": 200,
+          "data": {
+            "available_tables": [
+              "ohlcv_15min",
+              "ohlcv_1day",
+              "ohlcv_1hour",
+              "ohlcv_1min",
+              "ohlcv_1min_temp",
+              "ohlcv_4hour",
+              "ohlcv_5min",
+              "ohlcv_7day"
+            ],
+            "total_records": 368977,
+            "symbols_count": 7,
+            "earliest_data": "2024-01-01T00:00:00Z",
+            "latest_data": "2025-07-03T01:30:00Z",
+            "symbol_info": {}
+          }
+        },
+        "symbols": {
+          "success": true,
+          "status_code": 200,
+          "data": {
+            "symbols": [
+              "ADAUSDT",
+              "BTCUSDT",
+              "DOGEUSDT",
+              "ETHUSDT",
+              "SOLUSDT",
+              "TRXUSDT",
+              "XRPUSDT"
+            ],
+            "count": 7
+          }
+        },
+        "tables": {
+          "success": true,
+          "status_code": 200,
+          "data": {
+            "tables": [
+              "ohlcv_15min",
+              "ohlcv_1day",
+              "ohlcv_1hour",
+              "ohlcv_1min",
+              "ohlcv_1min_temp",
+              "ohlcv_4hour",
+              "ohlcv_5min",
+              "ohlcv_7day"
+            ],
+            "count": 8
+          }
+        }
+      },
+      "timestamp": "2025-07-03T03:35:26.776260"
+    },
+    "backtest_integration": {
+      "success": true,
+      "result": {
+        "api_test_successful": true,
+        "backtest_result": {
+          "success": false,
+          "symbol": "ADAUSDT",
+          "timeframe": "1min",
+          "data_points": 0,
+          "trades_executed": 0,
+          "initial_capital": 100000.0,
+          "final_capital": 0.0,
+          "total_return_pct": 0.0,
+          "max_drawdown_pct": 0.0,
+          "sharpe_ratio": 0.0,
+          "win_rate": 0.0,
+          "error": "'portfolio_history'"
+        },
+        "symbol_tested": "ADAUSDT"
+      },
+      "timestamp": "2025-07-03T03:35:28.204650"
+    },
+    "performance_validation": {
+      "success": true,
+      "result": {
+        "performance_test_successful": true,
+        "data_retrieval_time": 0.096585,
+        "api_response_time": 0.552492,
+        "records_retrieved": 1000,
+        "quick_test_result": {
+          "test_completed": true,
+          "symbol": "ADAUSDT",
+          "timeframe": "1min",
+          "days_tested": 7,
+          "result": {
+            "success": false,
+            "symbol": "ADAUSDT",
+            "timeframe": "1min",
+            "data_points": 0,
+            "trades_executed": 0,
+            "initial_capital": 100000.0,
+            "final_capital": 0.0,
+            "total_return_pct": 0.0,
+            "max_drawdown_pct": 0.0,
+            "sharpe_ratio": 0.0,
+            "win_rate": 0.0,
+            "error": "'portfolio_history'"
+          }
+        }
+      },
+      "timestamp": "2025-07-03T03:35:28.863919"
+    }
+  },
+  "timestamp": "2025-07-03T03:35:28.864051"
+}

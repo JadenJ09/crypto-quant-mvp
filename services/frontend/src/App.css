@@ -80,6 +80,23 @@
   .chart-container {
     border-radius: 0.5rem;
     overflow: hidden;
+    width: 100%;
+  }
+  
+  /* Dynamic height utility */
+  .chart-dynamic-height {
+    height: var(--chart-height);
+    min-height: var(--chart-height);
+  }
+  
+  /* Chart height utilities for dynamic sizing */
+  .chart-dynamic-height {
+    min-height: 400px; /* Minimum height for main chart */
+  }
+
+  .chart-dynamic-height[style*="height"] {
+    /* Allow inline height styles for dynamic chart sizing */
+    height: var(--dynamic-height, auto) !important;
   }
   
   /* Theme toggle button styles */

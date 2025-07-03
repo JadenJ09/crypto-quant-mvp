@@ -80,8 +80,8 @@ services:
     volumes:
       # Persists all database data on the host machine. If you stop/remove the container,
       # your data will be safe and will be re-loaded on the next start.
-      - timescale_data:/var/lib/postgresql/data
-      - ./infra/db:/docker-entrypoint-initdb.d # Custom initialization scripts
+      - timescale_data:/home/postgres/pgdata/data
+      # - ./infra/db:/docker-entrypoint-initdb.d # Custom initialization scripts
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -172,6 +172,33 @@ services:
   #  APPLICATION TIER (Placeholders for now, to be built in next tasks)
   # --------------------------------------------------------------------------
 
+  # Custom Backtesting Engine - Replaces VectorBT with high-performance numba implementation
+  backtest-engine:
+    build:
+      context: ./services/backtest-engine
+      dockerfile: Dockerfile
+    container_name: backtest-engine
+    networks:
+      - quant_network
+    ports:
+      - "8003:8003"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql://quant_user:quant_password@timescaledb:5433/quant_db"
+      API_PORT: "8003"
+    volumes:
+      - ./services/backtest-engine/src:/app/src
+      - ./services/backtest-engine/tests:/app/tests
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
   # --- NEW SERVICE ADDED FOR P1-T4 ---
   db-writer:
     build:
@@ -246,8 +273,8 @@ services:
       RECOVERY_MODE: "continuous" # or "oneshot"
       CHECK_INTERVAL_MINUTES: "10"
       HOURS_BACK: ${HOURS_BACK:-72} # Check last 3 days for more comprehensive monitoring
-      START_DATE: ${START_DATE:-2025-01-01} # Gap detection start date
-      END_DATE: ${END_DATE:-2025-06-28} # Gap detection end date
+      START_DATE: ${START_DATE} # Gap detection start date
+      END_DATE: ${END_DATE} # Gap detection end date
       BINANCE_API_KEY: ${BINANCE_API_KEY}
       BINANCE_SECRET_KEY: ${BINANCE_SECRET_KEY}
     restart: unless-stopped
@@ -277,8 +304,8 @@ services:
       KAFKA_OUTPUT_TOPIC: "agg.ohlcv.1m"
       RECOVERY_MODE: "oneshot"
       HOURS_BACK: ${HOURS_BACK:-168} # Check last 7 days for one-time recovery
-      START_DATE: ${START_DATE:-2025-01-01} # Gap detection start date
-      END_DATE: ${END_DATE:-2025-06-28} # Gap detection end date
+      START_DATE: ${START_DATE} # Gap detection start date
+      END_DATE: ${END_DATE} # Gap detection end date
       BINANCE_API_KEY: ${BINANCE_API_KEY}
       BINANCE_SECRET_KEY: ${BINANCE_SECRET_KEY}
     restart: "no"
@@ -306,8 +333,8 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
       KAFKA_OUTPUT_TOPIC: "agg.ohlcv.1m"
-      START_DATE: ${START_DATE:-2025-01-01} # Gap detection start date
-      END_DATE: ${END_DATE:-2025-06-28} # Gap detection end date
+      START_DATE: ${START_DATE} # Gap detection start date
+      END_DATE: ${END_DATE} # Gap detection end date
       MAX_WORKERS: ${MAX_WORKERS:-4} # Parallel symbol processing
       BINANCE_API_KEY: ${BINANCE_API_KEY}
       BINANCE_SECRET_KEY: ${BINANCE_SECRET_KEY}
@@ -334,8 +361,8 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       BINANCE_API_KEY: ${BINANCE_API_KEY}
       BINANCE_SECRET_KEY: ${BINANCE_SECRET_KEY}
-      START_DATE: ${START_DATE:-2025-06-01}
-      END_DATE: ${END_DATE:-2025-06-28}
+      START_DATE: ${START_DATE}
+      END_DATE: ${END_DATE}
       MAX_WORKERS: ${MAX_WORKERS:-4}
     restart: "no"
     profiles:
@@ -359,9 +386,33 @@ services:
     depends_on:
       - timescaledb
       - kafka
+      - vectorbt-api
     environment:
       DATABASE_URL: ${DATABASE_URL}
       KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      VECTORBT_SERVICE_URL: "http://vectorbt-api:8002"
+    restart: unless-stopped
+
+  # NEW: Refactored API Service (Port 8001) - Modern microservice architecture
+  api-new:
+    build:
+      context: ./services/api
+      dockerfile: Dockerfile
+    container_name: api-new
+    networks:
+      - quant_network
+    ports:
+      - "8001:8000"
+    volumes:
+      # Live-reloading for development
+      - ./services/api/app:/app/app
+    depends_on:
+      - timescaledb
+      - vectorbt-api
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      VECTORBT_SERVICE_URL: "http://vectorbt-api:8002"
+      API_PORT: "8000"
     restart: unless-stopped
 
   # Frontend service
@@ -399,6 +450,8 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       SERVICE_MODE: "bulk" # Bulk historical processing mode
       LOG_LEVEL: "INFO"
+      START_DATE: ${START_DATE:-2025-06-23} # Start date for bulk processing (7 days ago from 2025-06-30)
+      END_DATE: ${END_DATE:-2025-06-30} # End date for bulk processing (today)
       # Override defaults only if needed via .env file
       # BATCH_SIZE: ${BATCH_SIZE:-1000}
       # MAX_WORKERS: ${MAX_WORKERS:-4}
@@ -424,7 +477,7 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       SERVICE_MODE: "indicators" # Real-time processing mode
       LOG_LEVEL: "INFO"
-      POLLING_INTERVAL: "30" # Check for new data every 30 seconds
+      POLLING_INTERVAL: "50" # Check for new data every 50 seconds
       # Override defaults only if needed via .env file
       # BATCH_SIZE: ${BATCH_SIZE:-1000}
       # MAX_WORKERS: ${MAX_WORKERS:-4}
@@ -434,6 +487,39 @@ services:
     restart: unless-stopped
     profiles:
       - realtime
+
+  # NEW: VectorBT API Service - HTTP endpoints for indicators calculation and backtesting
+  vectorbt-api:
+    build:
+      context: ./services/vectorbt
+      dockerfile: Dockerfile.api
+    container_name: vectorbt-api
+    networks:
+      - quant_network
+    ports:
+      - "8002:8002"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      SERVICE_MODE: "api" # FastAPI service mode
+      LOG_LEVEL: "INFO"
+      API_PORT: "8002"
+    volumes:
+      # Live-reloading for development
+      - ./services/vectorbt/app:/app/app
+    restart: unless-stopped
+    command:
+      [
+        "uvicorn",
+        "app.main_api:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8002",
+        "--reload",
+      ]
 
 # Named volumes provide persistent storage for our stateful services.
 volumes:

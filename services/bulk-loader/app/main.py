@@ -548,8 +548,8 @@ def main():
     """Main entry point for bulk historical data loading."""
     
     # Configuration from environment with safer defaults
-    start_date = os.getenv('START_DATE', '2025-01-01')
-    
+    start_date = os.getenv('START_DATE', '2024-01-01')
+
     # Default end date: 1 hour before current time to prevent incomplete data
     default_end = datetime.now() - timedelta(hours=1)
     end_date = os.getenv('END_DATE', default_end.strftime('%Y-%m-%d'))

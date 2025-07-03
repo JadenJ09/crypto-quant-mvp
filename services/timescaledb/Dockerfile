@@ -10,4 +10,4 @@ COPY --from=pgvector /usr/share/postgresql/17/extension/vector--*.sql /usr/share
 COPY --from=pgvector /usr/share/postgresql/17/extension/vector.control /usr/share/postgresql/17/extension/
 
 # Switch back to the default postgres user
-USER postgres
+# USER quant_user  # REMOVED: This prevents proper data persistence

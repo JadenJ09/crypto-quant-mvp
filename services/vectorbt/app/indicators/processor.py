@@ -404,6 +404,60 @@ class TechnicalIndicatorsProcessor:
                 except Exception as e:
                     logger.warning(f"Error calculating volatility indicators: {e}")
                     
+            # VWEMA Ribbon
+            if 'volume' in df.columns and len(df) >= 26:
+                try:
+                    def vwema(close: pd.Series, volume: pd.Series, window: int) -> pd.Series:
+                        """Calculates the Volume-Weighted Exponential Moving Average (VWEMA)."""
+                        return (close * volume).ewm(span=window, adjust=False).mean() / volume.ewm(span=window, adjust=False).mean()
+
+                    result_df['vwema_ribbon_fast'] = vwema(result_df['close'], result_df['volume'], window=12)
+                    result_df['vwema_ribbon_slow'] = vwema(result_df['close'], result_df['volume'], window=26)
+                except Exception as e:
+                    logger.warning(f"Error calculating VWEMA Ribbon for {timeframe}: {e}")
+
+            # Ichimoku Cloud
+            if len(df) >= 52:
+                try:
+                    ichimoku = ta.trend.IchimokuIndicator(
+                        high=df['high'],
+                        low=df['low'],
+                        window1=9,    # Tenkan-sen
+                        window2=26,   # Kijun-sen
+                        window3=52    # Senkou Span B
+                    )
+                    result_df['ichimoku_tenkan'] = ichimoku.ichimoku_conversion_line()
+                    result_df['ichimoku_kijun'] = ichimoku.ichimoku_base_line()
+                    result_df['ichimoku_senkou_a'] = ichimoku.ichimoku_a()
+                    result_df['ichimoku_senkou_b'] = ichimoku.ichimoku_b()
+                except Exception as e:
+                    logger.warning(f"Error calculating Ichimoku Cloud for {timeframe}: {e}")
+
+            # ADX (Average Directional Movement Index)
+            if len(df) >= 28: # ADX typically requires 2x the period
+                try:
+                    adx_indicator = ta.trend.ADXIndicator(
+                        high=df['high'],
+                        low=df['low'],
+                        close=df['close'],
+                        window=14
+                    )
+                    result_df['adx_14'] = adx_indicator.adx()
+                    result_df['di_plus'] = adx_indicator.adx_pos()
+                    result_df['di_minus'] = adx_indicator.adx_neg()
+                except Exception as e:
+                    logger.warning(f"Error calculating ADX for {timeframe}: {e}")
+
+            # Historical Volatility (as a proxy for GARCH)
+            if len(df) >= 21:
+                try:
+                    log_returns = np.log(df['close'] / df['close'].shift(1))
+                    # Using a rolling standard deviation of log returns
+                    result_df['garch_volatility'] = log_returns.rolling(window=21).std()
+                except Exception as e:
+                    logger.warning(f"Error calculating Historical Volatility for {timeframe}: {e}")
+ 
+                    
             return result_df
             
         except Exception as e:
@@ -523,7 +577,11 @@ class TechnicalIndicatorsProcessor:
         elif timeframe == '1day':
             return timestamp.floor('d')
         elif timeframe == '7day':
-            return timestamp.floor('w')
+            # For weekly data, floor to the beginning of the week (Monday)
+            # Since floor('W') doesn't work reliably, calculate manually
+            days_since_monday = timestamp.weekday()
+            week_start = timestamp - pd.Timedelta(days=days_since_monday)
+            return week_start.floor('d')
         else:
             return timestamp
             

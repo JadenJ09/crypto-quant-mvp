@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# service/vectorbt/app/main.py
 """
 Multi-Purpose VectorBT Service
 
@@ -26,7 +26,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 
 from app.config import Settings
-from app.indicators_processor import TechnicalIndicatorsProcessor
+from app.indicators.processor import TechnicalIndicatorsProcessor
 from app.database import DatabaseManager
 from app.database_monitor import DatabaseMonitor
 
