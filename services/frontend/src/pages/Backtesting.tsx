@@ -3,14 +3,15 @@ import { BacktestParams, BacktestResult, Strategy, TechnicalIndicator, Trade } f
 import BacktestParametersPanel from '../components/backtesting/BacktestParametersPanel'
 import StrategyBuilder from '../components/backtesting/StrategyBuilder'
 import BacktestResults from '../components/backtesting/BacktestResults'
-import BacktestChart from '../components/backtesting/BacktestChart_v5'
+import BacktestChart from '../components/backtesting/charts/BacktestChart'
+import DataSyncDebug from '../components/backtesting/DataSyncDebug'
 import Navigation from '../components/Navigation'
 import ThemeToggle from '../components/ThemeToggle'
 import { useTheme } from '../hooks/useTheme'
 import { Play, Save, FolderOpen, TrendingUp, TrendingDown, DollarSign, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 
 // Import the chart data types
-import { OHLCVDataPoint, IndicatorDataPoint, TradeDataPoint } from '../components/backtesting/BacktestChart_v5'
+import { OHLCVDataPoint, IndicatorDataPoint, TradeDataPoint } from '../components/backtesting/charts'
 
 const Backtesting: React.FC = () => {
   const { theme } = useTheme()
@@ -79,6 +80,9 @@ const Backtesting: React.FC = () => {
   const [savedStrategies, setSavedStrategies] = useState<Strategy[]>([])
   const [showLoadMenu, setShowLoadMenu] = useState(false)
 
+  // Strategy reference that only updates when backtest is run
+  const [backtestStrategy, setBacktestStrategy] = useState<Strategy | null>(null)
+
   // Chart data state
   const [chartData, setChartData] = useState<{
     ohlcvData: OHLCVDataPoint[]
@@ -89,6 +93,9 @@ const Backtesting: React.FC = () => {
     indicatorData: {},
     tradeData: []
   })
+
+  // Filtered trades state - matches what's shown in the chart
+  const [filteredTrades, setFilteredTrades] = useState<Trade[]>([])
 
   // Chart timeframe state
   const [chartTimeframe, setChartTimeframe] = useState<string>('1h')
@@ -287,6 +294,8 @@ const Backtesting: React.FC = () => {
 
   const runBacktest = async () => {
     setIsRunning(true)
+    // Store strategy reference for chart data generation
+    setBacktestStrategy(currentStrategy)
     try {
       const response = await fetch('http://localhost:8002/strategies/backtest', {
         method: 'POST',
@@ -528,13 +537,14 @@ const Backtesting: React.FC = () => {
         // Fetch real indicator data from API if not available in backtest result
         console.log('🔄 Fetching real indicator data from API...')
         try {
-          // Determine which indicators to fetch based on the strategy
+          // Determine which indicators to fetch based on the backtest strategy
           const indicatorsToFetch: string[] = []
           
-          // Extract indicators from strategy conditions
-          const allConditions = [...currentStrategy.entry_conditions, ...currentStrategy.exit_conditions]
+          // Extract indicators from strategy conditions (only enabled ones)
+          const strategy = backtestStrategy || currentStrategy
+          const allConditions = [...strategy.entry_conditions, ...strategy.exit_conditions]
           for (const condition of allConditions) {
-            if (condition.indicator && !indicatorsToFetch.includes(condition.indicator)) {
+            if (condition.indicator && condition.enabled && !indicatorsToFetch.includes(condition.indicator)) {
               indicatorsToFetch.push(condition.indicator)
             }
           }
@@ -587,18 +597,48 @@ const Backtesting: React.FC = () => {
         }
       }
 
-      // Convert real trades to chart format
-      const tradeData: TradeDataPoint[] = result.trades.map(trade => ({
+      // Filter trades based on strategy direction
+      const strategyDirection = backtestStrategy?.position_direction || 'both'
+      const filteredTradesData = result.trades.filter(trade => {
+        if (strategyDirection === 'long_only' && trade.side === 'short') return false
+        if (strategyDirection === 'short_only' && trade.side === 'long') return false
+        return true
+      })
+      
+      // Convert filtered trades to chart format
+      const tradeData: TradeDataPoint[] = filteredTradesData.map(trade => ({
         time: trade.entry_time,
         side: trade.side === 'long' ? 'Buy' : 'Sell',
         price: trade.entry_price,
-        quantity: trade.quantity
+        quantity: trade.quantity,
+        exit_time: trade.exit_time,
+        exit_price: trade.exit_price
       }))
 
+      console.log('🎯 Trade filtering applied:', {
+        strategyDirection: backtestStrategy?.position_direction,
+        totalTrades: result.trades.length,
+        filteredTrades: filteredTradesData.length,
+        originalTrades: result.trades.map(t => ({ side: t.side, time: t.entry_time })),
+        filteredTradesData: tradeData,
+        actualFilteredTrades: filteredTradesData.map(t => ({ side: t.side, time: t.entry_time, pnl: t.pnl }))
+      })
+
+      // Update both chart data and filtered trades
       setChartData({
         ohlcvData,
         indicatorData,
         tradeData
+      })
+      
+      // Set filtered trades to match what the chart will display
+      setFilteredTrades(filteredTradesData)
+      
+      console.log('📊 Data sync check:', {
+        chartTradeDataLength: tradeData.length,
+        filteredTradesLength: filteredTradesData.length,
+        chartTradeData: tradeData,
+        filteredTradesData: filteredTradesData
       })
     } catch (error) {
       console.error('Error generating chart data:', error)
@@ -608,12 +648,15 @@ const Backtesting: React.FC = () => {
         tradeData: []
       })
     }
-  }, [chartTimeframe, currentStrategy.entry_conditions, currentStrategy.exit_conditions])
+  }, [chartTimeframe, backtestStrategy])
 
   // Update chart data when backtest result or chart timeframe changes
   useEffect(() => {
-    generateChartData(backtestResult)
-  }, [backtestResult, chartTimeframe, generateChartData, currentStrategy.entry_conditions, currentStrategy.exit_conditions])
+    // Only generate chart data if there's a backtest result
+    if (backtestResult) {
+      generateChartData(backtestResult)
+    }
+  }, [backtestResult, chartTimeframe, generateChartData])
 
   // Close load menu when clicking outside
   useEffect(() => {
@@ -633,6 +676,17 @@ const Backtesting: React.FC = () => {
   const PnLHistoryPanel: React.FC<{ trades: Trade[] }> = ({ trades }) => {
     const [sortField, setSortField] = useState<string>('')
     const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
+
+    // Debug log for P&L history data
+    console.log('📋 PnL History received trades:', {
+      tradesCount: trades.length,
+      trades: trades.map(t => ({ 
+        side: t.side, 
+        time: t.entry_time, 
+        pnl: t.pnl,
+        id: t.trade_id 
+      }))
+    })
 
     if (!trades || trades.length === 0) {
       return (
@@ -906,22 +960,33 @@ const Backtesting: React.FC = () => {
           {/* Second Row: P&L History - Full Width */}
           <div className="grid grid-cols-1 gap-6">
             <div className="h-[450px]">
-              <PnLHistoryPanel trades={backtestResult?.trades || []} />
+              <PnLHistoryPanel trades={filteredTrades} />
             </div>
           </div>
+
+          {/* Debug Section - Only show during development */}
+          {import.meta.env.DEV && backtestResult && (
+            <div className="grid grid-cols-1 gap-6">
+              <DataSyncDebug 
+                chartTradeData={chartData.tradeData}
+                pnlTradeData={filteredTrades}
+                backtestResult={backtestResult}
+              />
+            </div>
+          )}
 
           {/* Third Row: Results and Chart - Same Height */}
           <div className="grid grid-cols-12 gap-6">
             {/* Results */}
             <div className="col-span-3">
-              <div className="h-[600px]">
+              <div className="h-[800px]">
                 <BacktestResults result={backtestResult} />
               </div>
             </div>
             
             {/* Chart */}
             <div className="col-span-9">
-              <div className="h-[600px] bg-card border rounded-lg p-4">
+              <div className="bg-card border rounded-lg p-4">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-semibold flex items-center gap-2">
                     <TrendingUp size={18} />
@@ -943,12 +1008,16 @@ const Backtesting: React.FC = () => {
                     </select>
                   </div>
                 </div>
-                <div className="h-[calc(100%-60px)]">
+                <div>
                   <BacktestChart
                     ohlcvData={chartData.ohlcvData}
                     indicatorData={chartData.indicatorData}
                     tradeData={chartData.tradeData}
                     isDarkMode={theme === 'dark'}
+                    strategyConditions={backtestStrategy ? {
+                      entry_conditions: backtestStrategy.entry_conditions,
+                      exit_conditions: backtestStrategy.exit_conditions
+                    } : undefined}
                   />
                 </div>
               </div>

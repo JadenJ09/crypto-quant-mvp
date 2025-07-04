@@ -1,0 +1,41 @@
+/* BacktestChart styles */
+.chartContainer {
+  width: 100%;
+}
+
+.chartWrapper {
+  width: 100%;
+  border-radius: 0.375rem;
+  border: 1px solid #e5e7eb;
+  overflow: hidden;
+  position: relative;
+}
+
+.dark .chartWrapper {
+  border-color: #374151;
+}
+
+.chartDynamicHeight {
+  position: relative;
+  transition: height 0.2s ease-in-out;
+  height: var(--chart-height, 400px);
+}
+
+/* Custom scrollbar for chart if needed */
+.chartContainer::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.chartContainer::-webkit-scrollbar-track {
+  background: var(--background);
+}
+
+.chartContainer::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+.chartContainer::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+}

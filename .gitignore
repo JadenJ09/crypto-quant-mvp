@@ -62,3 +62,5 @@ notebooks/
 
 # Temporary pipeline files
 tmp/
+*.log
+tests/
